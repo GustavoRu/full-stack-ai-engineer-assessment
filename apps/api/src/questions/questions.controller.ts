@@ -1,9 +1,12 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { type AuthUser, CurrentUser } from '../auth/current-user.decorator.js';
 import { AskQuestionDto } from './ask-question.dto.js';
 import { QuestionsService } from './questions.service.js';
 
+@ApiTags('questions')
+@ApiBearerAuth()
 @Controller('documents/:documentId/questions')
 export class QuestionsController {
   constructor(private readonly questions: QuestionsService) {}

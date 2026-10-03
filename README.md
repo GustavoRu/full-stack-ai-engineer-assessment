@@ -21,6 +21,10 @@ docker compose up --build
 
 The API listens on http://localhost:3001/api.
 
+Interactive API docs (Swagger UI) are at http://localhost:3001/api/docs. Call
+`POST /auth/register`, paste the returned `accessToken` into **Authorize**, and
+the other routes are ready to try.
+
 ### Try it
 
 ```bash

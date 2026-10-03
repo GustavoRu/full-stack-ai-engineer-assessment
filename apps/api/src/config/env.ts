@@ -6,6 +6,10 @@ const envSchema = z
   .object({
     PORT: positiveInt(3001),
     WEB_ORIGIN: z.string().default('http://localhost:3000'),
+    API_DOCS_ENABLED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((value) => value === 'true'),
 
     DB_HOST: z.string().default('localhost'),
     DB_PORT: positiveInt(5432),

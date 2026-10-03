@@ -27,6 +27,12 @@ describe('validateEnv', () => {
     expect(validateEnv({ ...base, LLM_PROVIDER: 'gemini', GEMINI_API_KEY: 'key' }).LLM_PROVIDER).toBe('gemini');
   });
 
+  it('enables the API docs by default and lets them be switched off', () => {
+    expect(validateEnv(base).API_DOCS_ENABLED).toBe(true);
+    expect(validateEnv({ ...base, API_DOCS_ENABLED: 'false' }).API_DOCS_ENABLED).toBe(false);
+    expect(() => validateEnv({ ...base, API_DOCS_ENABLED: 'maybe' })).toThrow(/API_DOCS_ENABLED/);
+  });
+
   it('rejects an unknown provider', () => {
     expect(() => validateEnv({ ...base, LLM_PROVIDER: 'openai' })).toThrow(/LLM_PROVIDER/);
   });

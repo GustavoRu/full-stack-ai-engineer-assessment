@@ -3,7 +3,7 @@ import { GeminiChatModel, GeminiEmbeddingModel, mapGeminiError } from './gemini.
 import { LlmInvalidResponseError, LlmRateLimitError, LlmUnavailableError } from './llm.errors.js';
 
 const fakeClient = (models: Record<string, unknown>) => ({ models }) as unknown as GoogleGenAI;
-const vectorOf = (value: number) => ({ values: new Array<number>(768).fill(value) });
+const vectorOf = (value: number) => ({ values: Array.from({ length: 768 }, () => value) });
 
 describe('mapGeminiError', () => {
   it('maps a 429 to a rate limit error', () => {

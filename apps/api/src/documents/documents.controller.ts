@@ -11,6 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { type AuthUser, CurrentUser } from '../auth/current-user.decorator.js';
 import { CreateDocumentDto } from './create-document.dto.js';
@@ -18,12 +19,25 @@ import { toDocumentResponse } from './document.response.js';
 import { DocumentsService } from './documents.service.js';
 import { decodeFilename, type IncomingFile } from './text-extractor.js';
 
+@ApiTags('documents')
+@ApiBearerAuth()
 @Controller('documents')
 export class DocumentsController {
   constructor(private readonly documents: DocumentsService) {}
 
   @Post()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary', description: 'A .pdf, .txt or .md file' },
+        text: { type: 'string', description: 'Pasted text, instead of a file' },
+        title: { type: 'string', maxLength: 200 },
+      },
+    },
+  })
   @UseInterceptors(FileInterceptor('file'))
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateDocumentDto, @UploadedFile() upload?: IncomingFile) {
     const file = upload && { originalname: decodeFilename(upload.originalname), buffer: upload.buffer };

@@ -27,7 +27,7 @@ export class MockEmbeddingModel implements EmbeddingModel {
   }
 
   private embed(text: string): number[] {
-    const vector = new Array<number>(this.dimensions).fill(0);
+    const vector = Array.from({ length: this.dimensions }, () => 0);
     for (const word of tokenize(text)) {
       vector[hashWord(word) % this.dimensions] += 1;
     }

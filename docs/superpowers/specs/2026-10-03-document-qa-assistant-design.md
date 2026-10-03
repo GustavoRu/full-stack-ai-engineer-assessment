@@ -367,6 +367,10 @@ DTOs and a global `ValidationPipe` with `whitelist: true`.
 | `POST /documents/:id/questions` | Yes | `{ question }`, the AI endpoint |
 | `GET /health` | No | Liveness check |
 
+Interactive API documentation (Swagger UI) is served at `/api/docs`, with the
+OpenAPI document at `/api/docs-json`. It is controlled by `API_DOCS_ENABLED`
+and would be switched off in production.
+
 Response shapes:
 
 ```ts
@@ -462,6 +466,7 @@ committed; `.env` is ignored by git.
 |---|---|---|
 | `PORT` | `3001` | |
 | `WEB_ORIGIN` | `http://localhost:3000` | |
+| `API_DOCS_ENABLED` | `true` | |
 | `DB_HOST` | `localhost` (`db` inside Compose) | |
 | `DB_PORT` | `5432` | |
 | `DB_NAME`, `DB_USER` | `docqa` | |
