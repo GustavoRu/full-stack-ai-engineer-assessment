@@ -19,7 +19,8 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The API listens on http://localhost:3001/api.
+Open http://localhost:3000, create an account, upload a document and ask a
+question about it. The API listens on http://localhost:3001/api.
 
 Interactive API docs (Swagger UI) are at http://localhost:3001/api/docs. Call
 `POST /auth/register`, paste the returned `accessToken` into **Authorize**, and
@@ -52,6 +53,11 @@ pnpm install
 pnpm start:dev   # reads the root .env
 pnpm test        # unit tests, no database needed
 pnpm test:int    # integration tests against the Compose database
+
+cd ../web
+pnpm install
+pnpm dev         # http://localhost:3000
+pnpm test
 ```
 
 ## What the answer looks like
@@ -80,7 +86,8 @@ poorly calibrated. Uncertainty is derived from citations, which can be checked.
 
 ## Architecture
 
-A modular NestJS monolith, PostgreSQL with pgvector, and Docker Compose.
+A Next.js frontend, a modular NestJS monolith, PostgreSQL with pgvector, and
+Docker Compose.
 
 | Module | Responsibility |
 |---|---|
@@ -161,3 +168,24 @@ Requests are limited per user: 10 questions and 5 uploads per minute. The
 defaults are sized for the Gemini free tier: embedding quota is counted per text,
 so a 50,000-character document (about 60 chunks, never more than 92) uses most
 of the 100 embedding requests allowed per minute.
+
+## Frontend
+
+A client-rendered Next.js app with four screens: sign in, sign up, the document
+list with upload, and the question page of one document.
+
+| Concern | How it is handled |
+|---|---|
+| Model status | A pending card shows the question and "Thinking" until the answer arrives |
+| Uncertainty | Each answer carries a status badge; `unverified` adds a warning and `not_found` suggests rephrasing |
+| Sources | Each answer can expand the passages it cited |
+| Refine or re-ask | "Edit and ask again" copies a past question into the form |
+| Errors | Every request has an error state with a retry; a rate limit has its own message and keeps the question |
+| Empty states | "Upload your first document" and "Ask your first question" |
+| Unsafe output | Model output is rendered as plain text, never as HTML or Markdown |
+
+There are no partial results: without streaming the answer arrives whole, so the
+UI shows "Thinking" until then.
+
+The token is kept in `localStorage`, which is simple but readable by any script
+on the page. The production alternative is an `httpOnly` cookie.

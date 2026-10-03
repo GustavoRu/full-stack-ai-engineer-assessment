@@ -46,7 +46,7 @@ Success criteria:
 - Refresh tokens, password reset, email verification.
 - Automatic data expiry (explained in the README, not built).
 - PII detection or redaction (explained in the README, not built).
-- Frontend automated tests.
+- Frontend end-to-end tests in the repository.
 
 **Extras, in this order, only if time remains**
 
@@ -556,6 +556,7 @@ Vitest, the NestJS 12 default.
 | Questions service | Unit with mock ports and a fake repository | Full flow without network |
 | Auth service | Unit | Hash and verify, token issue |
 | API with a real database | Integration (`pnpm test:int`) | Isolation between users, retrieval scope, malformed input, cascade delete |
+| Frontend API client and stateful components | Unit, Vitest and Testing Library | Session expiry, error messages, loading, model status, answer statuses, retry |
 
 Also: lint, typecheck and build for both apps, and a manual end-to-end pass with
 Docker Compose from a clean clone before delivery.
@@ -600,7 +601,7 @@ cost of *What we give up*.
 | Synchronous ingestion | Queue and worker | No queue or worker to build or operate | Upload blocks for seconds. Document size is capped by the provider's per-minute quota. Bursts of uploads are not smoothed |
 | Independent questions | Conversation memory with query rewriting | Bounded cost; reproducible and evaluable pairs | No follow-up questions. Each question must be self-contained |
 | Status derived from citations | Self-reported confidence score | Verifiable; model confidence is poorly calibrated | A coarse signal: a valid citation proves the source was retrieved, not that the answer is faithful to it |
-| Token in `localStorage` | `httpOnly` cookie | Simplest to build and explain | Any script on the page can read it, so an XSS could steal the session |
+| Token in `localStorage`, read with `useSyncExternalStore` | `httpOnly` cookie | Simplest to build and explain | Any script on the page can read it, so an XSS could steal the session |
 | ECS Fargate | Single EC2, EKS, Lambda | Matches the brief's deploy options; horizontal scaling, declarative secrets, rolling deploys | Costs more and has more moving parts than one EC2 instance, which is enough for an MVP |
 
 ## 14. Schedule

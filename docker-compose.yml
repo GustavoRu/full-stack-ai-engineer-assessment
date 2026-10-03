@@ -35,5 +35,17 @@ services:
       timeout: 3s
       retries: 5
 
+  web:
+    build:
+      context: ./apps/web
+      args:
+        # The browser calls the API directly, so this is the address as seen from the host
+        NEXT_PUBLIC_API_URL: http://localhost:3001/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   db_data:
