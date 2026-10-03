@@ -566,22 +566,27 @@ Each "Explain" item of the brief maps to a README section.
 
 The README is written section by section as each block is finished.
 
-## 13. Decisions and rejected alternatives
+## 13. Decisions, rejected alternatives and trade-offs
 
-| Decision | Why | Rejected |
-|---|---|---|
-| Document Q&A | Covers submit, interact and structured output naturally | Summarize and classify; structured extraction |
-| RAG with pgvector | Bounded cost per question; same database as persistence; verifiable citations | Whole document in the prompt; a separate vector store |
-| All Node, no Python service | Chunking, embedding calls and SQL need nothing Python-specific | A Python ingestion service |
-| Own ports and adapters | Shows the separation the brief asks for in our own code | LangChain |
-| Gemini plus mock, chosen by `LLM_PROVIDER` | Both are tested; explicit beats inferring from keys | Untested extra adapters; auto-detection |
-| NestJS | The framework the author uses daily; dependency injection fits ports | Express, Fastify |
-| Drizzle | Native pgvector types and helpers; SQL-like | Prisma (vector is `Unsupported`), TypeORM |
-| Synchronous ingestion | No queue or worker to build | Queue and worker, documented as the scaling step |
-| Independent questions | Bounded cost, reproducible and evaluable pairs | Conversation memory with query rewriting |
-| Status derived from citations | Verifiable; model confidence is poorly calibrated | Self-reported confidence score |
-| Token in `localStorage` | Simplest; trade-off documented | `httpOnly` cookie |
-| ECS Fargate | Matches the brief's deploy options and scaling question | Single EC2, EKS, Lambda |
+Read each row as: we chose *Decision* over *Rejected* because *Why*, at the
+cost of *What we give up*.
+
+| Decision | Rejected | Why | What we give up |
+|---|---|---|---|
+| Document Q&A | Summarize and classify; structured extraction | Covers submit, interact and structured output naturally | More to build: retrieval and a Q&A page. The other two are one model call per submission |
+| RAG with pgvector | Whole document in the prompt; a dedicated vector store | Bounded cost per question; same database as persistence; verifiable citations | Retrieval can miss the relevant chunk, which whole-document prompting never does. A dedicated store scales further |
+| All Node, no Python service | A Python ingestion service | The brief asks for Node or Java; chunking, embedding calls and SQL need nothing Python-specific; one runtime to deploy | Python has the richer AI ecosystem: OCR and layout-aware parsing, evaluation tooling, local models |
+| Own ports and adapters | LangChain | Shows the separation the brief asks for in our own code; small dependency surface | We write and maintain the chunker, retries and adapters. LangChain ships many providers and loaders ready-made |
+| Gemini plus mock, chosen by `LLM_PROVIDER` | More provider adapters; auto-detection by API key | Both adapters are tested; explicit selection is unambiguous | One real provider is thin proof of the abstraction. Someone with only another provider's key must write an adapter |
+| NestJS | Express, Fastify | The framework the author uses daily; dependency injection fits ports | More boilerplate and indirection than a minimal framework for an app this small |
+| Drizzle | Prisma, TypeORM | Native pgvector types and helpers; SQL-like | No official NestJS module. Prisma and TypeORM are more common in existing NestJS projects |
+| Exact vector search, no index | HNSW index | Search runs inside one document, so exact search is fast and has perfect recall | Does not scale to search across many documents |
+| Fixed-size chunks measured in characters | Token-based or semantic chunking | No tokenizer dependency; a pure function that is easy to test | A boundary can split a table or an idea. Token counts are approximate |
+| Synchronous ingestion | Queue and worker | No queue or worker to build or operate | Upload blocks for seconds. Document size is capped by the provider's per-minute quota. Bursts of uploads are not smoothed |
+| Independent questions | Conversation memory with query rewriting | Bounded cost; reproducible and evaluable pairs | No follow-up questions. Each question must be self-contained |
+| Status derived from citations | Self-reported confidence score | Verifiable; model confidence is poorly calibrated | A coarse signal: a valid citation proves the source was retrieved, not that the answer is faithful to it |
+| Token in `localStorage` | `httpOnly` cookie | Simplest to build and explain | Any script on the page can read it, so an XSS could steal the session |
+| ECS Fargate | Single EC2, EKS, Lambda | Matches the brief's deploy options; horizontal scaling, declarative secrets, rolling deploys | Costs more and has more moving parts than one EC2 instance, which is enough for an MVP |
 
 ## 14. Schedule
 
