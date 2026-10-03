@@ -69,7 +69,8 @@ repo/
 └── README.md
 ```
 
-Each app has its own `package.json` and uses npm. There are no workspaces and no
+Each app has its own `package.json` and uses pnpm (the npm bundled with Node
+22.20 fails to install the NestJS 12 scaffold). There are no workspaces and no
 shared package: the few response types that cross the boundary are duplicated in
 the frontend.
 
@@ -466,7 +467,7 @@ committed; `.env` is ignored by git.
 | `DB_NAME`, `DB_USER` | `docqa` | |
 | `DB_PASSWORD` | `docqa` (local only) | Yes |
 | `JWT_SECRET` | none | Yes |
-| `JWT_EXPIRES_IN` | `1h` | |
+| `JWT_EXPIRES_IN_SECONDS` | `3600` | |
 | `LLM_PROVIDER` | `gemini` | |
 | `GEMINI_API_KEY` | none, required when the provider is `gemini` | Yes |
 | `GEMINI_CHAT_MODEL` | `gemini-3.1-flash-lite` | |
@@ -485,7 +486,7 @@ injected and rotated on its own.
 
 - `docker-compose.yml` with three services: `db` (`pgvector/pgvector:pg17` with a
   volume and a health check), `api` (waits for a healthy `db`) and `web`.
-- Multi-stage Dockerfiles on `node:22-slim`, running as a non-root user. Next.js
+- Multi-stage Dockerfiles on `node:24-slim`, running as a non-root user. Next.js
   uses `standalone` output.
 - Drizzle migrations are committed SQL files and run when the API starts. The
   first one creates the `vector` extension. In production they would run as a
@@ -532,7 +533,7 @@ Compose would be cheaper, and the README says so.
 
 ## 11. Testing
 
-Jest, the NestJS default.
+Vitest, the NestJS 12 default.
 
 | Target | Kind | What it checks |
 |---|---|---|
@@ -618,7 +619,9 @@ cost of *What we give up*.
 1. Whether one batched embedding request counts as one request or one per chunk
    against the per-minute and per-day quotas. The 50,000-character cap is safe
    in both cases.
-2. The exact `@google/genai` calls for schema-constrained output and batched
-   embeddings, against the installed SDK version.
+2. Done: verified against `@google/genai` 2.27. Generation uses
+   `models.generateContent` with `responseJsonSchema`; embeddings use
+   `models.embedContent` with an array of texts; retries use the SDK's own
+   retry options.
 3. How `unpdf` reports a PDF with no text layer.
 4. The paid price of `gemini-embedding-001`, for the README cost table.
