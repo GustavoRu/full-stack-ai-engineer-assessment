@@ -63,6 +63,22 @@ describe('UploadForm', () => {
     expect((screen.getByLabelText('Text') as HTMLTextAreaElement).value).toBe('');
   });
 
+  it('disables every field while the document is processed', async () => {
+    let finish: (document: DocumentSummary) => void = () => {};
+    apiFetchMock.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    render(<UploadForm onCreated={vi.fn()} />);
+
+    pasteText('hello world');
+    fireEvent.click(submitButton());
+
+    expect(screen.getByLabelText('Text').matches(':disabled')).toBe(true);
+    expect(screen.getByLabelText('Title (optional)').matches(':disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Upload a file' }).matches(':disabled')).toBe(true);
+
+    finish(created);
+    await waitFor(() => expect(screen.getByLabelText('Text').matches(':disabled')).toBe(false));
+  });
+
   it('shows the error and lets the user try again', async () => {
     apiFetchMock.mockRejectedValue(new ApiError(413, 'The document has 60000 characters and the limit is 50000'));
     const onCreated = vi.fn();

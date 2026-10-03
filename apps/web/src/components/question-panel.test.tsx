@@ -92,6 +92,20 @@ describe('QuestionPanel', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('keeps what the user typed while waiting for the answer', async () => {
+    let finish: (question: Question) => void = () => {};
+    apiFetchMock.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    render(<QuestionPanel documentId="d-1" initialQuestions={[]} />);
+
+    type('What is the capital of France?');
+    fireEvent.click(askButton());
+    type('A second question I am already typing');
+
+    finish(answered);
+    expect(await screen.findByText('Paris.')).toBeTruthy();
+    expect(input().value).toBe('A second question I am already typing');
+  });
+
   it('lists earlier answers newest first', () => {
     const older = { ...answered, id: 'q-0', question: 'Older question?', answer: 'Older answer.' };
     render(<QuestionPanel documentId="d-1" initialQuestions={[older, answered]} />);

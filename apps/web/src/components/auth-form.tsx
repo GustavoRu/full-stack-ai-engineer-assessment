@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ALERT, BUTTON, CARD, INPUT } from '@/components/styles';
 import { messageOf } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { safeNextPath } from '@/lib/navigation';
 
 const COPY = {
   login: {
@@ -29,16 +30,19 @@ const COPY = {
 export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   const { login, register, token, hydrated } = useAuth();
   const router = useRouter();
+  const search = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const copy = COPY[mode];
+  const expired = search.get('expired') === '1';
+  const destination = safeNextPath(search.get('next')) ?? '/documents';
 
   // Covers both an existing session and a submit that just succeeded
   useEffect(() => {
-    if (hydrated && token) router.replace('/documents');
-  }, [hydrated, token, router]);
+    if (hydrated && token) router.replace(destination);
+  }, [hydrated, token, router, destination]);
 
   async function submit() {
     setError(null);
@@ -54,6 +58,11 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   return (
     <section className={`${CARD} mx-auto max-w-sm`}>
       <h1 className="text-xl font-semibold">{copy.title}</h1>
+      {expired && (
+        <p role="status" className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-900">
+          Your session expired. Sign in again.
+        </p>
+      )}
       <form
         className="mt-4 space-y-4"
         onSubmit={(event) => {

@@ -119,6 +119,37 @@ describe('session handling', () => {
     });
   });
 
+  it('notices a sign-out or sign-in made in another tab', () => {
+    const listener = vi.fn();
+    const unsubscribe = tokenStore.subscribe(listener);
+
+    window.dispatchEvent(new StorageEvent('storage', { key: 'docqa.token', newValue: null }));
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // Another key, or a change that is not ours, is ignored
+    window.dispatchEvent(new StorageEvent('storage', { key: 'something.else', newValue: 'x' }));
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    window.dispatchEvent(new StorageEvent('storage', { key: 'docqa.token', newValue: 'abc' }));
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('remembers once that the last session ended by expiring', async () => {
+    tokenStore.set('expired');
+    fetchMock.mockResolvedValue(jsonResponse(401, { message: 'Invalid or expired token' }));
+    await expect(apiFetch('/documents')).rejects.toBeInstanceOf(ApiError);
+
+    expect(tokenStore.consumeExpired()).toBe(true);
+    expect(tokenStore.consumeExpired()).toBe(false);
+  });
+
+  it('does not report an expiry when the user signs out', () => {
+    tokenStore.set('abc');
+    tokenStore.clear();
+    expect(tokenStore.consumeExpired()).toBe(false);
+  });
+
   it('stops notifying a listener after it unsubscribes', () => {
     const listener = vi.fn();
     tokenStore.subscribe(listener)();

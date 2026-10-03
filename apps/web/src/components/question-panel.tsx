@@ -31,7 +31,8 @@ export function QuestionPanel({ documentId, initialQuestions }: Props) {
         json: { question: trimmed },
       });
       setQuestions((current) => [...current, answer]);
-      setDraft('');
+      // Clears only what was sent: the user may already be typing the next question
+      setDraft((current) => (current.trim() === trimmed ? '' : current));
     } catch (cause) {
       // The draft is kept so the user can retry or edit it
       setError(messageOf(cause));

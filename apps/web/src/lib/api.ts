@@ -14,6 +14,9 @@ export class ApiError extends Error {
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((listener) => listener());
 
+// Set when the API rejects a stored token, so the login page can explain why the user is there
+let sessionExpired = false;
+
 // The token lives outside React, so components read it through useSyncExternalStore
 export const tokenStore = {
   get(): string | null {
@@ -27,10 +30,27 @@ export const tokenStore = {
     window.localStorage.removeItem(TOKEN_KEY);
     notify();
   },
+  // Ends the session because the API rejected the token
+  expire() {
+    sessionExpired = true;
+    tokenStore.clear();
+  },
+  // True once after an expiry, so the notice is shown a single time
+  consumeExpired(): boolean {
+    const expired = sessionExpired;
+    sessionExpired = false;
+    return expired;
+  },
   subscribe(listener: () => void) {
     listeners.add(listener);
+    // Sign-in and sign-out in another tab arrive as storage events
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === TOKEN_KEY || event.key === null) listener();
+    };
+    window.addEventListener('storage', onStorage);
     return () => {
       listeners.delete(listener);
+      window.removeEventListener('storage', onStorage);
     };
   },
 };
@@ -60,7 +80,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
   if (response.status === 401 && token) {
     // Clearing the token makes every subscribed component fall back to the login page
-    tokenStore.clear();
+    tokenStore.expire();
     throw new ApiError(401, 'Your session expired. Sign in again.');
   }
   if (response.status === 204) return undefined as T;
