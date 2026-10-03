@@ -581,7 +581,7 @@ cost of *What we give up*.
 | NestJS | Express, Fastify | The framework the author uses daily; dependency injection fits ports | More boilerplate and indirection than a minimal framework for an app this small |
 | Drizzle | Prisma, TypeORM | Native pgvector types and helpers; SQL-like | No official NestJS module. Prisma and TypeORM are more common in existing NestJS projects |
 | Exact vector search, no index | HNSW index | Search runs inside one document, so exact search is fast and has perfect recall | Does not scale to search across many documents |
-| Fixed-size chunks measured in characters | Token-based or semantic chunking | No tokenizer dependency; a pure function that is easy to test | A boundary can split a table or an idea. Token counts are approximate |
+| Recursive splitting with a size cap, measured in characters | Semantic or structure-based chunking; sending neighbor chunks (parent-child retrieval) | No tokenizer and no extra model calls; a pure function that is easy to test | An idea that spans paragraphs can be split, and the model may answer from half of it. Token counts are approximate |
 | Synchronous ingestion | Queue and worker | No queue or worker to build or operate | Upload blocks for seconds. Document size is capped by the provider's per-minute quota. Bursts of uploads are not smoothed |
 | Independent questions | Conversation memory with query rewriting | Bounded cost; reproducible and evaluable pairs | No follow-up questions. Each question must be self-contained |
 | Status derived from citations | Self-reported confidence score | Verifiable; model confidence is poorly calibrated | A coarse signal: a valid citation proves the source was retrieved, not that the answer is faithful to it |
@@ -605,7 +605,10 @@ cost of *What we give up*.
   about 15 pages.
 - Text-based PDFs only; no OCR, weak handling of tables and columns.
 - No conversation memory; follow-up questions must be self-contained.
-- Citations are per chunk, not per sentence.
+- Citations are per chunk, not per sentence. A valid citation shows the source
+  was retrieved, not that the answer is complete or faithful to it.
+- An idea split across chunks can produce an incomplete answer. Sending
+  neighbor chunks to the model is the first planned improvement.
 - No refresh tokens; the session lasts one hour.
 - No PII redaction and no automatic data expiry.
 - No partial results without streaming.
