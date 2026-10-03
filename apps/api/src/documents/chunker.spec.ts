@@ -54,6 +54,28 @@ describe('chunkText', () => {
     expect(chunks.every((chunk) => chunk.content.endsWith('.'))).toBe(true);
   });
 
+  it('fills chunks whatever the paragraph length, so the chunk count stays bounded', () => {
+    const filler = 'Lorem ipsum dolor sit amet consectetur. ';
+    for (const paragraphLength of [200, 430, 480, 520, 850]) {
+      const body = filler.repeat(Math.ceil(paragraphLength / filler.length)).slice(0, paragraphLength - 1);
+      const block = `${body.trim()}.`;
+      const count = Math.ceil(50_000 / (block.length + 2));
+      const text = Array.from({ length: count }, () => block)
+        .join('\n\n')
+        .slice(0, 50_000);
+
+      // Every chunk but the last adds more than size - overlap - 300 new characters
+      const limit = Math.ceil(text.length / 550) + 1;
+      expect(chunkText(text).length, `paragraphs of ${paragraphLength} characters`).toBeLessThanOrEqual(limit);
+    }
+  });
+
+  it('fills chunks when paragraphs have no sentence breaks', () => {
+    const block = 'word '.repeat(90).trim();
+    const text = Array.from({ length: 110 }, () => block).join('\n\n');
+    expect(chunkText(text).length).toBeLessThanOrEqual(Math.ceil(text.length / 550) + 1);
+  });
+
   it('hard-cuts text that has no boundaries at all', () => {
     const chunks = chunkText('x'.repeat(2500));
     expect(chunks.every((chunk) => chunk.content.length <= 1000)).toBe(true);

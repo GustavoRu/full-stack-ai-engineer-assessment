@@ -1,3 +1,5 @@
+import { removeNullBytes } from '../common/text.js';
+
 export interface TextChunk {
   index: number;
   content: string;
@@ -6,12 +8,14 @@ export interface TextChunk {
 export const CHUNK_SIZE = 1000;
 export const CHUNK_OVERLAP = 150;
 
+// Small pieces pack tightly: every chunk but the last is filled past CHUNK_SIZE - MAX_PIECE_LENGTH
+const MAX_PIECE_LENGTH = 300;
+
 // Tried in order: paragraph, line, sentence, word
 const SEPARATORS = ['\n\n', '\n', '. ', ' '];
 
 export function normalizeText(text: string): string {
-  return text
-    .replaceAll('\u0000', '')
+  return removeNullBytes(text)
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t]+/g, ' ')
     .replace(/ ?\n ?/g, '\n')
@@ -23,8 +27,8 @@ export function chunkText(text: string, size = CHUNK_SIZE, overlap = CHUNK_OVERL
   const normalized = normalizeText(text);
   if (normalized.length === 0) return [];
 
-  // Pieces leave room for the overlap prefix, so no chunk exceeds `size`
-  const pieces = splitRecursive(normalized, size - overlap, SEPARATORS);
+  // Pieces also leave room for the overlap prefix, so no chunk exceeds `size`
+  const pieces = splitRecursive(normalized, Math.min(MAX_PIECE_LENGTH, size - overlap), SEPARATORS);
 
   const contents: string[] = [];
   let current = '';
