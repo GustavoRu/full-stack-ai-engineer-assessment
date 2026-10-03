@@ -11,6 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { type AuthUser, CurrentUser } from '../auth/current-user.decorator.js';
 import { CreateDocumentDto } from './create-document.dto.js';
 import { toDocumentResponse } from './document.response.js';
@@ -22,6 +23,7 @@ export class DocumentsController {
   constructor(private readonly documents: DocumentsService) {}
 
   @Post()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @UseInterceptors(FileInterceptor('file'))
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateDocumentDto, @UploadedFile() upload?: IncomingFile) {
     const file = upload && { originalname: decodeFilename(upload.originalname), buffer: upload.buffer };
