@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Logger,
   NotFoundException,
   PayloadTooLargeException,
   UnprocessableEntityException,
@@ -7,6 +8,7 @@ import {
 import type { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.js';
 import type { DocumentRow, NewDocument } from '../database/schema.js';
+import { LlmRateLimitError } from '../llm/llm.errors.js';
 import { MockEmbeddingModel } from '../llm/mock.adapter.js';
 import { normalizeText } from './chunker.js';
 import type { DocumentsRepository, NewChunk } from './documents.repository.js';
@@ -63,6 +65,49 @@ describe('DocumentsService.create', () => {
     const { service, stored } = setup();
     await service.create('user-1', { text: 'Some content.', title: '  My document  ' });
     expect(stored[0].document.title).toBe('My document');
+  });
+
+  it('removes null bytes from the title, which PostgreSQL would reject', async () => {
+    const { service, stored } = setup();
+    await service.create('user-1', { text: 'Some content.', title: 'My\u0000 document' });
+    expect(stored[0].document.title).toBe('My document');
+  });
+
+  it('logs the ingestion with its counts and without the document text or title', async () => {
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const { service } = setup();
+    await service.create('user-1', { text: 'Top secret content.', title: 'Secret plan' });
+
+    const line = String(log.mock.calls[0]?.[0]);
+    log.mockRestore();
+    expect(JSON.parse(line)).toMatchObject({
+      event: 'document_ingested',
+      userId: 'user-1',
+      documentId: 'doc-1',
+      sourceType: 'pasted',
+      charCount: 19,
+      chunkCount: 1,
+      embeddingModel: 'mock-embedding',
+    });
+    expect(line).not.toMatch(/secret/i);
+  });
+
+  it('logs a failed ingestion without the document text', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { service, embedSpy } = setup();
+    embedSpy.mockRejectedValueOnce(new LlmRateLimitError('quota'));
+    await expect(service.create('user-1', { text: 'Top secret content.' })).rejects.toThrow('quota');
+
+    const line = String(warn.mock.calls[0]?.[0]);
+    warn.mockRestore();
+    expect(JSON.parse(line)).toMatchObject({
+      event: 'document_ingest_failed',
+      userId: 'user-1',
+      chunkCount: 1,
+      embeddingModel: 'mock-embedding',
+      error: 'LlmRateLimitError',
+    });
+    expect(line).not.toMatch(/secret/i);
   });
 
   it('rejects a request with both or neither of file and text', async () => {

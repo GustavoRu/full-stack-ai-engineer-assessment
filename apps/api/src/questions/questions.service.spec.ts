@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.js';
 import type { DocumentRow, NewQuestion, QuestionRow } from '../database/schema.js';
@@ -131,6 +131,34 @@ describe('QuestionsService.ask', () => {
     await expect(service.history('user-2', 'doc-1')).rejects.toThrow(NotFoundException);
     expect(generate).not.toHaveBeenCalled();
     expect(repo.listByDocument).not.toHaveBeenCalled();
+  });
+
+  it('removes null bytes from the question, which PostgreSQL would reject', async () => {
+    const { service, repo, generate } = setup();
+    await service.ask('user-1', 'doc-1', 'What is\u0000 the capital?');
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ question: 'What is the capital?' }));
+    expect(generate.mock.calls[0][0].user).not.toContain('\u0000');
+  });
+
+  it('logs a failed model call with its metadata and without the question', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { service } = setup({ chatText: 'not json' });
+    await expect(service.ask('user-1', 'doc-1', 'A very secret question?')).rejects.toThrow(LlmInvalidResponseError);
+
+    const line = String(warn.mock.calls[0]?.[0]);
+    warn.mockRestore();
+    expect(JSON.parse(line)).toMatchObject({
+      event: 'question_failed',
+      userId: 'user-1',
+      documentId: 'doc-1',
+      provider: 'test-provider',
+      model: 'test-chat',
+      promptVersion: 'qa-v1',
+      error: 'LlmInvalidResponseError',
+      inputTokens: 100,
+      outputTokens: 20,
+    });
+    expect(line).not.toContain('secret');
   });
 
   it('rejects blank and oversized questions', async () => {

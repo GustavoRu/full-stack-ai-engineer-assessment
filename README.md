@@ -50,7 +50,8 @@ docker compose up -d db
 cd apps/api
 pnpm install
 pnpm start:dev   # reads the root .env
-pnpm test
+pnpm test        # unit tests, no database needed
+pnpm test:int    # integration tests against the Compose database
 ```
 
 ## What the answer looks like
@@ -141,7 +142,8 @@ No single defense is complete, so there are four layers:
 ### Retrieval
 
 Documents are split recursively at paragraph, line and sentence boundaries into
-chunks of about 1,000 characters with 150 characters of overlap. Each question
+chunks of about 1,000 characters with 150 characters of overlap. Pieces are at
+most 300 characters, so chunks fill up and the chunk count is predictable. Each question
 retrieves the 5 nearest chunks of that document by cosine distance. The search is
 exact: it only scans one document's chunks, so it needs no vector index.
 
@@ -157,5 +159,5 @@ exact: it only scans one document's chunks, so it needs no vector index.
 
 Requests are limited per user: 10 questions and 5 uploads per minute. The
 defaults are sized for the Gemini free tier: embedding quota is counted per text,
-so a 50,000-character document (about 60 chunks) uses about 60 of the 100
-embedding requests allowed per minute.
+so a 50,000-character document (about 60 chunks, never more than 92) uses most
+of the 100 embedding requests allowed per minute.

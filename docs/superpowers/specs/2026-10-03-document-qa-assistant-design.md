@@ -169,16 +169,18 @@ Decisions:
 2. **Extract text.** PDFs with `unpdf`; text files are decoded as UTF-8. A PDF
    with no extractable text is rejected with 422.
 3. **Chunk.** Pure function: normalize whitespace, split recursively by
-   paragraph, line, sentence and word, pack into chunks of about 1,000
-   characters with 150 characters of overlap. Size is measured in characters,
-   so no tokenizer is needed.
+   paragraph, line, sentence and word into pieces of at most 300 characters,
+   and pack them into chunks of about 1,000 characters with 150 characters of
+   overlap. Small pieces fill the chunks, so the chunk count is predictable.
+   Size is measured in characters, so no tokenizer is needed.
 4. **Embed.** All chunks in a single `embedDocuments` call.
 5. **Store.** Document and chunks in one transaction, after embedding succeeds.
    A failed embedding leaves nothing behind.
 
-Why 50,000 characters: the free tier allows 30,000 embedding tokens per minute.
-A 50,000-character document produces about 60 chunks and 15,000 to 17,000
-tokens, which fits with room for question embeddings. Larger documents need the
+Why 50,000 characters: the free tier allows 30,000 embedding tokens and 100
+embedding requests per minute, and it counts one request per text. A
+50,000-character document produces about 60 chunks (the chunker guarantees at
+most 92) and 15,000 to 17,000 tokens, so one large document fits in a minute. Larger documents need the
 asynchronous ingestion described in the README.
 
 ### 5.2 Question flow
@@ -347,8 +349,14 @@ The question limit sits below the provider's 15 requests per minute.
 ### 6.4 Logging
 
 One structured log line per model call with metadata only: user ID, document ID,
-provider, model, prompt version, token counts, latency and status. Document
-text, questions, answers and keys are never logged.
+provider, model, prompt version, token counts, latency and status. The events
+are `question_answered`, `question_failed`, `document_ingested` and
+`document_ingest_failed`. Document text, questions, answers and keys are never
+logged.
+
+Unexpected errors are logged without their message, because the message of a
+failed query carries its bound parameters. The log line keeps the error type,
+the database error code and constraint, and the first stack frames.
 
 ## 7. API
 
@@ -547,6 +555,7 @@ Vitest, the NestJS 12 default.
 | Answer post-processor | Unit, TDD | The three statuses, invalid citations dropped, invalid JSON rejected |
 | Questions service | Unit with mock ports and a fake repository | Full flow without network |
 | Auth service | Unit | Hash and verify, token issue |
+| API with a real database | Integration (`pnpm test:int`) | Isolation between users, retrieval scope, malformed input, cascade delete |
 
 Also: lint, typecheck and build for both apps, and a manual end-to-end pass with
 Docker Compose from a clean clone before delivery.
@@ -621,12 +630,12 @@ cost of *What we give up*.
 
 ## 16. To verify during implementation
 
-1. Whether one batched embedding request counts as one request or one per chunk
-   against the per-minute and per-day quotas. The 50,000-character cap is safe
-   in both cases.
+1. Done: the quota counts one request per text, not per batch. A call with two
+   texts counted as two requests.
 2. Done: verified against `@google/genai` 2.27. Generation uses
    `models.generateContent` with `responseJsonSchema`; embeddings use
    `models.embedContent` with an array of texts; retries use the SDK's own
    retry options.
-3. How `unpdf` reports a PDF with no text layer.
+3. Done: `unpdf` returns blank text for a PDF with no text layer, and the
+   service rejects it with 422.
 4. The paid price of `gemini-embedding-001`, for the README cost table.

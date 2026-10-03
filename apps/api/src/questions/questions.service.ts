@@ -1,8 +1,15 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { removeNullBytes } from '../common/text.js';
 import type { Env } from '../config/env.js';
 import { DocumentsService } from '../documents/documents.service.js';
-import { CHAT_MODEL, type ChatModel, EMBEDDING_MODEL, type EmbeddingModel } from '../llm/llm.ports.js';
+import {
+  CHAT_MODEL,
+  type ChatModel,
+  type ChatResult,
+  EMBEDDING_MODEL,
+  type EmbeddingModel,
+} from '../llm/llm.ports.js';
 import { getPromptTemplate } from '../prompts/prompt.registry.js';
 import type { PromptTemplate } from '../prompts/prompt.types.js';
 import { parseAnswer } from './answer-parser.js';
@@ -35,7 +42,7 @@ export class QuestionsService {
   }
 
   async ask(userId: string, documentId: string, rawQuestion: string): Promise<QuestionResponse> {
-    const question = rawQuestion.trim();
+    const question = removeNullBytes(rawQuestion).trim();
     if (question.length === 0) {
       throw new BadRequestException('The question is empty');
     }
@@ -49,65 +56,86 @@ export class QuestionsService {
     }
 
     const startedAt = Date.now();
+    let result: ChatResult | undefined;
+    try {
+      // 1. Retrieve
+      const queryEmbedding = await this.embeddings.embedQuery(question);
+      const retrieved = await this.repo.findNearestChunks(documentId, queryEmbedding, this.topK);
 
-    // 1. Retrieve
-    const queryEmbedding = await this.embeddings.embedQuery(question);
-    const retrieved = await this.repo.findNearestChunks(documentId, queryEmbedding, this.topK);
+      // 2. Build the prompt
+      const prompt = this.template.build(
+        question,
+        retrieved.map((chunk, i) => ({ number: i + 1, content: chunk.content })),
+      );
 
-    // 2. Build the prompt
-    const prompt = this.template.build(
-      question,
-      retrieved.map((chunk, i) => ({ number: i + 1, content: chunk.content })),
-    );
+      // 3. Invoke the model
+      result = await this.chat.generate({
+        system: prompt.system,
+        user: prompt.user,
+        responseSchema: prompt.responseSchema,
+        temperature: TEMPERATURE,
+        maxOutputTokens: this.maxOutputTokens,
+      });
 
-    // 3. Invoke the model
-    const result = await this.chat.generate({
-      system: prompt.system,
-      user: prompt.user,
-      responseSchema: prompt.responseSchema,
-      temperature: TEMPERATURE,
-      maxOutputTokens: this.maxOutputTokens,
-    });
+      // 4. Post-process
+      const parsed = parseAnswer(result.text, retrieved);
+      const latencyMs = Date.now() - startedAt;
 
-    // 4. Post-process
-    const parsed = parseAnswer(result.text, retrieved);
-    const latencyMs = Date.now() - startedAt;
+      // 5. Store the audit record
+      const saved = await this.repo.create({
+        documentId,
+        userId,
+        question,
+        answer: parsed.answer,
+        status: parsed.status,
+        citations: parsed.citations,
+        retrieved: retrieved.map(({ chunkIndex, distance }) => ({ chunkIndex, distance })),
+        promptVersion: prompt.version,
+        provider: this.chat.provider,
+        model: this.chat.model,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        latencyMs,
+      });
 
-    // 5. Store the audit record
-    const saved = await this.repo.create({
-      documentId,
+      this.logger.log(
+        JSON.stringify({
+          event: 'question_answered',
+          ...this.callMetadata(userId, documentId),
+          questionId: saved.id,
+          status: saved.status,
+          inputTokens: saved.inputTokens,
+          outputTokens: saved.outputTokens,
+          latencyMs,
+        }),
+      );
+
+      return toQuestionResponse(saved, new Map(retrieved.map((chunk) => [chunk.chunkIndex, chunk.content])));
+    } catch (error) {
+      // Token counts are present when the model was billed before the failure
+      this.logger.warn(
+        JSON.stringify({
+          event: 'question_failed',
+          ...this.callMetadata(userId, documentId),
+          error: error instanceof Error ? error.name : 'unknown',
+          inputTokens: result?.inputTokens,
+          outputTokens: result?.outputTokens,
+          latencyMs: Date.now() - startedAt,
+        }),
+      );
+      throw error;
+    }
+  }
+
+  // Metadata only: never the question, the answer or document text
+  private callMetadata(userId: string, documentId: string) {
+    return {
       userId,
-      question,
-      answer: parsed.answer,
-      status: parsed.status,
-      citations: parsed.citations,
-      retrieved: retrieved.map(({ chunkIndex, distance }) => ({ chunkIndex, distance })),
-      promptVersion: prompt.version,
+      documentId,
       provider: this.chat.provider,
       model: this.chat.model,
-      inputTokens: result.inputTokens,
-      outputTokens: result.outputTokens,
-      latencyMs,
-    });
-
-    // Metadata only: never the question, the answer or document text
-    this.logger.log(
-      JSON.stringify({
-        event: 'question_answered',
-        userId,
-        documentId,
-        questionId: saved.id,
-        provider: saved.provider,
-        model: saved.model,
-        promptVersion: saved.promptVersion,
-        status: saved.status,
-        inputTokens: saved.inputTokens,
-        outputTokens: saved.outputTokens,
-        latencyMs,
-      }),
-    );
-
-    return toQuestionResponse(saved, new Map(retrieved.map((chunk) => [chunk.chunkIndex, chunk.content])));
+      promptVersion: this.template.version,
+    };
   }
 
   async history(userId: string, documentId: string): Promise<QuestionResponse[]> {

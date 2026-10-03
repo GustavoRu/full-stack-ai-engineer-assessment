@@ -2,11 +2,13 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   PayloadTooLargeException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { removeNullBytes } from '../common/text.js';
 import type { Env } from '../config/env.js';
 import type { DocumentRow, SourceType } from '../database/schema.js';
 import { EMBEDDING_MODEL, type EmbeddingModel } from '../llm/llm.ports.js';
@@ -21,6 +23,7 @@ const DEFAULT_TITLE_LENGTH = 60;
 
 @Injectable()
 export class DocumentsService {
+  private readonly logger = new Logger(DocumentsService.name);
   private readonly maxDocumentChars: number;
 
   constructor(
@@ -51,26 +54,47 @@ export class DocumentsService {
       );
     }
 
-    // Embed before storing, so a failed embedding leaves nothing behind
     const textChunks = chunkText(text);
-    const vectors = await this.embeddings.embedDocuments(textChunks.map((chunk) => chunk.content));
+    // Metadata only: never the document text or its title
+    const metadata = {
+      userId,
+      sourceType: source.sourceType,
+      charCount: text.length,
+      chunkCount: textChunks.length,
+      embeddingModel: this.embeddings.model,
+    };
+    const startedAt = Date.now();
 
-    const title = (input.title?.trim() || input.file?.originalname || text.slice(0, DEFAULT_TITLE_LENGTH).trim()).slice(
-      0,
-      MAX_TITLE_LENGTH,
-    );
+    // Embed before storing, so a failed embedding leaves nothing behind
+    let vectors: number[][];
+    try {
+      vectors = await this.embeddings.embedDocuments(textChunks.map((chunk) => chunk.content));
+    } catch (error) {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'document_ingest_failed',
+          ...metadata,
+          error: error instanceof Error ? error.name : 'unknown',
+          latencyMs: Date.now() - startedAt,
+        }),
+      );
+      throw error;
+    }
 
-    return this.repo.createWithChunks(
-      {
-        userId,
-        title,
-        sourceType: source.sourceType,
-        charCount: text.length,
-        chunkCount: textChunks.length,
-        embeddingModel: this.embeddings.model,
-      },
+    const created = await this.repo.createWithChunks(
+      { ...metadata, title: pickTitle(input, text) },
       textChunks.map((chunk, i) => ({ chunkIndex: chunk.index, content: chunk.content, embedding: vectors[i] })),
     );
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'document_ingested',
+        ...metadata,
+        documentId: created.id,
+        latencyMs: Date.now() - startedAt,
+      }),
+    );
+    return created;
   }
 
   list(userId: string): Promise<DocumentRow[]> {
@@ -89,4 +113,11 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
   }
+}
+
+// First non-empty option: the explicit title, the file name, the start of the text
+function pickTitle(input: CreateDocumentInput, text: string): string {
+  const candidates = [input.title, input.file?.originalname, text.slice(0, DEFAULT_TITLE_LENGTH)];
+  const title = candidates.map((candidate) => removeNullBytes(candidate ?? '').trim()).find(Boolean);
+  return (title ?? 'Untitled document').slice(0, MAX_TITLE_LENGTH);
 }

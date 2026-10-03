@@ -39,9 +39,14 @@ export class DocumentsController {
     },
   })
   @UseInterceptors(FileInterceptor('file'))
-  async create(@CurrentUser() user: AuthUser, @Body() dto: CreateDocumentDto, @UploadedFile() upload?: IncomingFile) {
+  async create(
+    @CurrentUser() user: AuthUser,
+    // Undefined when the request has no parseable body
+    @Body() dto: CreateDocumentDto | undefined,
+    @UploadedFile() upload?: IncomingFile,
+  ) {
     const file = upload && { originalname: decodeFilename(upload.originalname), buffer: upload.buffer };
-    return toDocumentResponse(await this.documents.create(user.id, { file, text: dto.text, title: dto.title }));
+    return toDocumentResponse(await this.documents.create(user.id, { file, text: dto?.text, title: dto?.title }));
   }
 
   @Get()
