@@ -18,9 +18,11 @@ export interface ParsedAnswer {
 // Model output is untrusted input: the provider guarantees JSON syntax, not correct values
 const modelAnswerSchema = z.object({
   answerable: z.boolean(),
-  answer: z.string().trim().min(1),
+  answer: z.string().trim(),
   citations: z.array(z.number().int()),
 });
+
+const DEFAULT_NOT_FOUND_ANSWER = 'The document does not cover this question.';
 
 export function parseAnswer(rawText: string, retrieved: RetrievedChunk[]): ParsedAnswer {
   let json: unknown;
@@ -37,7 +39,11 @@ export function parseAnswer(rawText: string, retrieved: RetrievedChunk[]): Parse
   const { answerable, answer, citations } = result.data;
 
   if (!answerable) {
-    return { status: 'not_found', answer, citations: [] };
+    return { status: 'not_found', answer: answer || DEFAULT_NOT_FOUND_ANSWER, citations: [] };
+  }
+  // An answer claimed as answerable must say something
+  if (answer.length === 0) {
+    throw new LlmInvalidResponseError('The model returned an invalid response. Try asking again.');
   }
 
   // A citation is valid only if it points to a source that was actually sent

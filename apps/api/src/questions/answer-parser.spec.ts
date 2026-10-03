@@ -40,6 +40,14 @@ describe('parseAnswer', () => {
     });
   });
 
+  it('treats a not answerable response with a blank answer as not_found, with a default message', () => {
+    expect(parseAnswer(raw({ answerable: false, answer: '  ', citations: [] }), retrieved)).toEqual({
+      status: 'not_found',
+      answer: 'The document does not cover this question.',
+      citations: [],
+    });
+  });
+
   it('rejects output that is not JSON, such as a truncated response', () => {
     expect(() => parseAnswer('{"answerable": true, "answer": "Par', retrieved)).toThrow(LlmInvalidResponseError);
     expect(() => parseAnswer('', retrieved)).toThrow(LlmInvalidResponseError);

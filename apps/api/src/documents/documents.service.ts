@@ -36,7 +36,10 @@ export class DocumentsService {
 
   async create(userId: string, input: CreateDocumentInput): Promise<DocumentRow> {
     const pastedText = input.text?.trim();
-    if (!!input.file === !!pastedText) {
+    if (!input.file && !pastedText) {
+      throw new BadRequestException('Provide a file or some text');
+    }
+    if (input.file && pastedText) {
       throw new BadRequestException('Provide either a file or text, not both');
     }
 

@@ -6,7 +6,8 @@ services:
       POSTGRES_USER: ${DB_USER:-docqa}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-docqa}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      # Local access only: the database uses default credentials
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:

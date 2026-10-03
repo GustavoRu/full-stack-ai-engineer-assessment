@@ -119,6 +119,14 @@ describe('DocumentsService.create', () => {
     );
   });
 
+  it('says what is missing when neither a file nor text is sent, and what is wrong when both are', async () => {
+    const { service } = setup();
+    await expect(service.create('user-1', {})).rejects.toThrow('Provide a file or some text');
+    await expect(service.create('user-1', { text: 'a', file: textFile('a.txt', 'a') })).rejects.toThrow(
+      'Provide either a file or text, not both',
+    );
+  });
+
   it('rejects a file with nothing to index', async () => {
     const { service } = setup();
     await expect(service.create('user-1', { file: textFile('blank.txt', ' \n ') })).rejects.toThrow(

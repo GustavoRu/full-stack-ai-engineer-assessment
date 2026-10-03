@@ -41,6 +41,21 @@ describe('AuthService', () => {
     await expect(service.register('ADA@example.com', 'another-pass')).rejects.toThrow(ConflictException);
   });
 
+  it('answers 409 when a concurrent registration wins the unique email constraint', async () => {
+    const { repo, service } = setup();
+    // The existence check passes for both requests; the database then rejects the second insert
+    vi.spyOn(repo, 'create').mockRejectedValueOnce(
+      Object.assign(new Error('Failed query'), { cause: { code: '23505', constraint: 'users_email_unique' } }),
+    );
+    await expect(service.register('ada@example.com', 'correct-horse')).rejects.toThrow(ConflictException);
+  });
+
+  it('does not hide other database failures as a conflict', async () => {
+    const { repo, service } = setup();
+    vi.spyOn(repo, 'create').mockRejectedValueOnce(new Error('connection lost'));
+    await expect(service.register('ada@example.com', 'correct-horse')).rejects.toThrow('connection lost');
+  });
+
   it('logs in with the right password', async () => {
     const { jwt, service } = setup();
     await service.register('ada@example.com', 'correct-horse');

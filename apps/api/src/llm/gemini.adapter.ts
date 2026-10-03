@@ -3,7 +3,7 @@ import { EMBEDDING_DIMENSIONS } from '../database/schema.js';
 import { LlmInvalidResponseError, LlmRateLimitError, LlmUnavailableError } from './llm.errors.js';
 import type { ChatModel, ChatRequest, ChatResult, EmbeddingModel } from './llm.ports.js';
 
-// 30 s timeout; 3 attempts means 2 retries, waiting about 1 s and then 2 s
+// Each attempt has its own 30 s timeout; 3 attempts means 2 retries, waiting 1-2 s and then 2-4 s (jitter on)
 export const GEMINI_HTTP_OPTIONS = {
   timeout: 30_000,
   retryOptions: { attempts: 3, initialDelay: 1, expBase: 2, jitter: 0.2, httpStatusCodes: [429, 500, 502, 503, 504] },
