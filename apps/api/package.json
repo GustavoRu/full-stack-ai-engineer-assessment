@@ -17,7 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
-    "test:debug": "vitest --inspect-brk --no-file-parallelism"
+    "test:debug": "vitest --inspect-brk --no-file-parallelism",
+    "test:int": "vitest run --config ./vitest.config.int.ts"
   },
   "dependencies": {
     "@google/genai": "^2.27.0",
