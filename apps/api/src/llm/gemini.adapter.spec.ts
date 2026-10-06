@@ -19,7 +19,7 @@ describe('mapGeminiError', () => {
 describe('GeminiChatModel', () => {
   const request = {
     system: 'system text',
-    user: 'user text',
+    messages: [{ role: 'user' as const, content: 'user text' }],
     responseSchema: { type: 'object' },
     temperature: 0.2,
     maxOutputTokens: 800,
@@ -32,7 +32,7 @@ describe('GeminiChatModel', () => {
     });
     const model = new GeminiChatModel(fakeClient({ generateContent }), 'gemini-test');
 
-    await expect(model.generate(request)).resolves.toEqual({ text: '{"ok":true}', inputTokens: 120, outputTokens: 40 });
+    await expect(model.generate(request)).resolves.toMatchObject({ text: '{"ok":true}', inputTokens: 120, outputTokens: 40 });
     expect(generateContent).toHaveBeenCalledWith({
       model: 'gemini-test',
       contents: 'user text',

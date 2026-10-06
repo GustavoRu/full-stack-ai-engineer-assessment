@@ -1,4 +1,5 @@
 import { EMBEDDING_DIMENSIONS } from '../database/schema.js';
+import { textResult } from './chat-result.js';
 import type { ChatModel, ChatRequest, ChatResult, EmbeddingModel } from './llm.ports.js';
 
 const tokenize = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
@@ -43,23 +44,23 @@ export class MockEmbeddingModel implements EmbeddingModel {
 
 const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 
+const lastUserMessage = (request: ChatRequest) =>
+  [...request.messages].reverse().find((message) => message.role === 'user')?.content ?? '';
+
 // Returns a schema-valid answer that quotes the first source of the prompt
 export class MockChatModel implements ChatModel {
   readonly provider = 'mock';
   readonly model = 'mock-chat';
 
   async generate(request: ChatRequest): Promise<ChatResult> {
-    const firstSource = request.user.match(/<source id="1">\n?([\s\S]*?)\n?<\/source>/)?.[1] ?? '';
+    const user = lastUserMessage(request);
+    const firstSource = user.match(/<source id="1">\n?([\s\S]*?)\n?<\/source>/)?.[1] ?? '';
     const answerable = firstSource.length > 0;
     const text = JSON.stringify({
       answerable,
       answer: answerable ? `[mock] ${firstSource.slice(0, 200)}` : '[mock] No sources were provided.',
       citations: answerable ? [1] : [],
     });
-    return {
-      text,
-      inputTokens: estimateTokens(request.system + request.user),
-      outputTokens: estimateTokens(text),
-    };
+    return textResult(text, estimateTokens(request.system + user), estimateTokens(text));
   }
 }

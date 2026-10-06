@@ -1,5 +1,6 @@
 import { ApiError, type GoogleGenAI } from '@google/genai';
 import { EMBEDDING_DIMENSIONS } from '../database/schema.js';
+import { textResult } from './chat-result.js';
 import { LlmInvalidResponseError, LlmRateLimitError, LlmUnavailableError } from './llm.errors.js';
 import type { ChatModel, ChatRequest, ChatResult, EmbeddingModel } from './llm.ports.js';
 
@@ -27,10 +28,12 @@ export class GeminiChatModel implements ChatModel {
   ) {}
 
   async generate(request: ChatRequest): Promise<ChatResult> {
+    if (request.tools?.length) throw new Error('The native Gemini adapter does not support tools');
+    const user = request.messages.find((message) => message.role === 'user')?.content ?? '';
     try {
       const response = await this.client.models.generateContent({
         model: this.model,
-        contents: request.user,
+        contents: user,
         config: {
           systemInstruction: request.system,
           temperature: request.temperature,
@@ -40,12 +43,9 @@ export class GeminiChatModel implements ChatModel {
         },
       });
       const usage = response.usageMetadata;
-      return {
-        text: response.text ?? '',
-        inputTokens: usage?.promptTokenCount ?? 0,
-        // Thinking tokens are billed as output
-        outputTokens: (usage?.candidatesTokenCount ?? 0) + (usage?.thoughtsTokenCount ?? 0),
-      };
+      // Thinking tokens are billed as output
+      const outputTokens = (usage?.candidatesTokenCount ?? 0) + (usage?.thoughtsTokenCount ?? 0);
+      return textResult(response.text ?? '', usage?.promptTokenCount ?? 0, outputTokens);
     } catch (error) {
       throw mapGeminiError(error);
     }

@@ -71,7 +71,7 @@ export class QuestionsService {
       // 3. Invoke the model
       result = await this.chat.generate({
         system: prompt.system,
-        user: prompt.user,
+        messages: [{ role: 'user', content: prompt.user }],
         responseSchema: prompt.responseSchema,
         temperature: TEMPERATURE,
         maxOutputTokens: this.maxOutputTokens,
