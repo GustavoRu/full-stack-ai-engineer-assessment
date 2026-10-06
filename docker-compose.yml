@@ -78,6 +78,28 @@ services:
       api:
         condition: service_healthy
 
+  # Optional, part of the observability profile: stores the application logs
+  loki:
+    image: grafana/loki:3.7.8
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ./infra/grafana/loki.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+
+  # Optional, part of the observability profile: ships the api and web container logs to Loki.
+  # It reads them through the Docker socket, which gives it access to the Docker daemon: local use only
+  alloy:
+    image: grafana/alloy:v1.20.1
+    profiles: ["observability"]
+    environment:
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME}
+    volumes:
+      - ./infra/grafana/alloy.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
   # Optional: docker compose --profile observability up -d, then http://localhost:3002
   grafana:
     image: grafana/grafana:13.2.3
@@ -97,6 +119,9 @@ services:
     depends_on:
       grafana-db-init:
         condition: service_completed_successfully
+      loki:
+        condition: service_started
 
 volumes:
   db_data:
+  loki_data:

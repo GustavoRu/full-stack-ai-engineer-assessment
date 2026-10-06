@@ -1,6 +1,7 @@
 import { type INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { requestLogger } from './common/request-logger.js';
 import type { Env } from './config/env.js';
 
 // Shared by the server entry point and the integration tests, so both run the same pipeline
@@ -8,6 +9,7 @@ export function configureApp(app: INestApplication): ConfigService<Env, true> {
   const config = app.get<ConfigService<Env, true>>(ConfigService);
 
   app.setGlobalPrefix('api');
+  app.use(requestLogger());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
   app.enableCors({ origin: config.get('WEB_ORIGIN', { infer: true }) });
   app.enableShutdownHooks();
