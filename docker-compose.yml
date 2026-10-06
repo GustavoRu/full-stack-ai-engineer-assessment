@@ -25,7 +25,8 @@ services:
       DB_PORT: 5432
       PORT: 3001
     ports:
-      - "3001:3001"
+      # Local access only: the demo account in .env has public credentials
+      - "127.0.0.1:3001:3001"
     depends_on:
       db:
         condition: service_healthy
@@ -42,7 +43,7 @@ services:
         # The browser calls the API directly, so this is the address as seen from the host
         NEXT_PUBLIC_API_URL: http://localhost:3001/api
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       api:
         condition: service_healthy
