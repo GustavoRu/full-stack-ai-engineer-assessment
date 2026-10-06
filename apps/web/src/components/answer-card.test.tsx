@@ -12,6 +12,9 @@ const base: Question = {
   usage: { inputTokens: 230, outputTokens: 37 },
   model: 'gemini-3.1-flash-lite',
   promptVersion: 'qa-v1',
+  mode: 'classic',
+  searches: [],
+  modelCalls: 1,
   createdAt: '2026-10-04T12:00:00.000Z',
 };
 
@@ -67,5 +70,30 @@ describe('AnswerCard', () => {
   it('shows the model, prompt version and token count', () => {
     render(<AnswerCard question={base} onReask={vi.fn()} />);
     expect(screen.getByText('gemini-3.1-flash-lite · qa-v1 · 267 tokens')).toBeTruthy();
+  });
+
+  it('lists what the model searched for in an agentic answer, as text', () => {
+    const question: Question = {
+      ...base,
+      mode: 'agentic',
+      promptVersion: 'agent-v1',
+      modelCalls: 3,
+      searches: [
+        { query: 'notice period', sourceCount: 3 },
+        { query: '<b>termination</b> fees', sourceCount: 2 },
+      ],
+    };
+    const { container } = render(<AnswerCard question={question} onReask={vi.fn()} />);
+
+    expect(screen.getByText('Searched for:')).toBeTruthy();
+    expect(screen.getByText(/notice period/)).toBeTruthy();
+    expect(screen.getByText(/<b>termination<\/b> fees/)).toBeTruthy();
+    expect(container.querySelector('b')).toBeNull();
+    expect(screen.getByText('gemini-3.1-flash-lite · agent-v1 · 267 tokens · 3 model calls')).toBeTruthy();
+  });
+
+  it('shows no search list for a classic answer', () => {
+    render(<AnswerCard question={base} onReask={vi.fn()} />);
+    expect(screen.queryByText('Searched for:')).toBeNull();
   });
 });

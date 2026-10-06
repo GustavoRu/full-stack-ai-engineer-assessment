@@ -1,5 +1,6 @@
 export type SourceType = 'pdf' | 'text' | 'markdown' | 'pasted';
 export type AnswerStatus = 'answered' | 'unverified' | 'not_found';
+export type AnswerMode = 'classic' | 'agentic';
 
 export interface DocumentSummary {
   id: string;
@@ -15,6 +16,12 @@ export interface Citation {
   content: string;
 }
 
+export interface SearchStep {
+  query: string;
+  // How many passages the search found
+  sourceCount: number;
+}
+
 export interface Question {
   id: string;
   question: string;
@@ -24,5 +31,8 @@ export interface Question {
   usage: { inputTokens: number; outputTokens: number };
   model: string;
   promptVersion: string;
+  mode: AnswerMode;
+  searches: SearchStep[];
+  modelCalls: number;
   createdAt: string;
 }
