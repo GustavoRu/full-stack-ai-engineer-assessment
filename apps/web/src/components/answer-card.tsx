@@ -39,7 +39,9 @@ export function AnswerCard({ question, onReask }: Props) {
           <ul className="list-disc space-y-0.5 pl-5">
             {question.searches.map((step, index) => (
               <li key={`${index}-${step.query}`}>
-                {step.query} <span className="text-slate-400">({step.sourceCount} passages)</span>
+                {step.query} <span className="text-slate-400">
+                  ({step.sourceCount} {step.sourceCount === 1 ? 'passage' : 'passages'})
+                </span>
               </li>
             ))}
           </ul>

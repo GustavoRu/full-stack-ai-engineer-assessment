@@ -80,13 +80,15 @@ describe('AnswerCard', () => {
       modelCalls: 3,
       searches: [
         { query: 'notice period', sourceCount: 3 },
-        { query: '<b>termination</b> fees', sourceCount: 2 },
+        { query: '<b>termination</b> fees', sourceCount: 1 },
       ],
     };
     const { container } = render(<AnswerCard question={question} onReask={vi.fn()} />);
 
     expect(screen.getByText('Searched for:')).toBeTruthy();
     expect(screen.getByText(/notice period/)).toBeTruthy();
+    expect(screen.getByText('(3 passages)')).toBeTruthy();
+    expect(screen.getByText('(1 passage)')).toBeTruthy();
     expect(screen.getByText(/<b>termination<\/b> fees/)).toBeTruthy();
     expect(container.querySelector('b')).toBeNull();
     expect(screen.getByText('gemini-3.1-flash-lite · agent-v1 · 267 tokens · 3 model calls')).toBeTruthy();
