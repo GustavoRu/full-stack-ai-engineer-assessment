@@ -3,6 +3,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.js';
 import type { DocumentRow, NewQuestion, QuestionRow } from '../database/schema.js';
 import type { DocumentsService } from '../documents/documents.service.js';
+import { textResult } from '../llm/chat-result.js';
 import { LlmInvalidResponseError } from '../llm/llm.errors.js';
 import type { ChatModel, ChatRequest } from '../llm/llm.ports.js';
 import { MockEmbeddingModel } from '../llm/mock.adapter.js';
@@ -31,6 +32,7 @@ const settings: Record<string, unknown> = {
   RETRIEVAL_TOP_K: 5,
   MAX_OUTPUT_TOKENS: 800,
   MAX_QUESTION_CHARS: 1000,
+  LLM_TEMPERATURE: 0.2,
 };
 
 function setup(options: { chatText?: string; embeddingModel?: string } = {}) {
@@ -45,11 +47,9 @@ function setup(options: { chatText?: string; embeddingModel?: string } = {}) {
   const documents = {
     get: vi.fn().mockResolvedValue({ ...document, embeddingModel: options.embeddingModel ?? 'mock-embedding' }),
   };
-  const generate = vi.fn(async (_request: ChatRequest) => ({
-    text: options.chatText ?? JSON.stringify({ answerable: true, answer: 'Paris.', citations: [1] }),
-    inputTokens: 100,
-    outputTokens: 20,
-  }));
+  const generate = vi.fn(async (_request: ChatRequest) =>
+    textResult(options.chatText ?? JSON.stringify({ answerable: true, answer: 'Paris.', citations: [1] }), 100, 20),
+  );
   const chat: ChatModel = { provider: 'test-provider', model: 'test-chat', generate };
   const config = { get: (key: string) => settings[key] } as unknown as ConfigService<Env, true>;
   const service = new QuestionsService(
@@ -81,8 +81,9 @@ describe('QuestionsService.ask', () => {
 
     expect(repo.findNearestChunks).toHaveBeenCalledWith('doc-1', expect.any(Array), 5);
     const request = generate.mock.calls[0][0];
-    expect(request.user).toContain('Paris is the capital of France.');
-    expect(request.user).toContain('What is the capital of France?');
+    expect(request.messages).toHaveLength(1);
+    expect(request.messages[0].content).toContain('Paris is the capital of France.');
+    expect(request.messages[0].content).toContain('What is the capital of France?');
     expect(request).toMatchObject({ temperature: 0.2, maxOutputTokens: 800 });
 
     expect(repo.create).toHaveBeenCalledWith(
@@ -137,7 +138,7 @@ describe('QuestionsService.ask', () => {
     const { service, repo, generate } = setup();
     await service.ask('user-1', 'doc-1', 'What is\u0000 the capital?');
     expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ question: 'What is the capital?' }));
-    expect(generate.mock.calls[0][0].user).not.toContain('\u0000');
+    expect(generate.mock.calls[0][0].messages[0].content).not.toContain('\u0000');
   });
 
   it('logs a failed model call with its metadata and without the question', async () => {
@@ -183,6 +184,17 @@ describe('QuestionsService.ask', () => {
       outputTokens: 20,
     });
     expect(JSON.stringify(entry)).not.toMatch(/secret|Paris/i);
+  });
+
+  it('sends no temperature when the setting is empty', async () => {
+    settings.LLM_TEMPERATURE = null;
+    try {
+      const { service, generate } = setup();
+      await service.ask('user-1', 'doc-1', 'What is the capital of France?');
+      expect(generate.mock.calls[0][0].temperature).toBeUndefined();
+    } finally {
+      settings.LLM_TEMPERATURE = 0.2;
+    }
   });
 
   it('rejects blank and oversized questions', async () => {

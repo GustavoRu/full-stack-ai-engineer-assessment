@@ -37,21 +37,24 @@ describe('MockEmbeddingModel', () => {
 describe('MockChatModel', () => {
   const model = new MockChatModel();
   const request = { system: 'rules', responseSchema: {}, temperature: 0, maxOutputTokens: 100 };
+  const asUser = (content: string) => ({ ...request, messages: [{ role: 'user' as const, content }] });
 
   it('answers from the first source and cites it', async () => {
     const user = '<sources>\n<source id="1">\nParis is the capital.\n</source>\n</sources>\n\n<question>\nCapital?\n</question>';
-    const result = await model.generate({ ...request, user });
+    const result = await model.generate(asUser(user));
     expect(JSON.parse(result.text)).toEqual({
       answerable: true,
       answer: '[mock] Paris is the capital.',
       citations: [1],
     });
+    expect(result.toolCalls).toEqual([]);
+    expect(result.assistantMessage).toMatchObject({ role: 'assistant', content: result.text });
     expect(result.inputTokens).toBeGreaterThan(0);
     expect(result.outputTokens).toBeGreaterThan(0);
   });
 
   it('reports not answerable when there are no sources', async () => {
-    const result = await model.generate({ ...request, user: '<sources>\n\n</sources>' });
+    const result = await model.generate(asUser('<sources>\n\n</sources>'));
     expect(JSON.parse(result.text)).toMatchObject({ answerable: false, citations: [] });
   });
 });
