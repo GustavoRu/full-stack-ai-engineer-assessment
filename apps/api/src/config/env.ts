@@ -57,6 +57,11 @@ const envSchema = z
     ANTHROPIC_CHAT_MODEL: z.string().default('claude-haiku-4-5'),
     LLM_TEMPERATURE: temperature,
     PROMPT_VERSION: z.string().default('qa-v1'),
+    // The agentic mode lets the model search the document itself; classic is the default
+    DEFAULT_ANSWER_MODE: z.enum(['classic', 'agentic']).default('classic'),
+    AGENT_PROMPT_VERSION: z.string().default('agent-v1'),
+    AGENT_MAX_SEARCHES: positiveInt(3),
+    AGENT_TOP_K: positiveInt(3),
 
     MAX_UPLOAD_BYTES: positiveInt(5 * 1024 * 1024),
     MAX_DOCUMENT_CHARS: positiveInt(50_000),

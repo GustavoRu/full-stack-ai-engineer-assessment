@@ -33,6 +33,21 @@ export function AnswerCard({ question, onReask }: Props) {
       {/* Plain text on purpose: model output is never rendered as HTML or Markdown */}
       <p className="whitespace-pre-wrap text-sm leading-6">{question.answer}</p>
 
+      {question.mode === 'agentic' && question.searches.length > 0 && (
+        <div className="space-y-1 text-sm text-slate-600">
+          <p className="font-medium">Searched for:</p>
+          <ul className="list-disc space-y-0.5 pl-5">
+            {question.searches.map((step, index) => (
+              <li key={`${index}-${step.query}`}>
+                {step.query} <span className="text-slate-400">
+                  ({step.sourceCount} {step.sourceCount === 1 ? 'passage' : 'passages'})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {note && <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">{note}</p>}
 
       {question.citations.length > 0 && (
@@ -64,6 +79,7 @@ export function AnswerCard({ question, onReask }: Props) {
         </button>
         <span className="text-xs text-slate-500">
           {question.model} · {question.promptVersion} · {totalTokens} tokens
+          {question.modelCalls > 1 ? ` · ${question.modelCalls} model calls` : ''}
         </span>
       </footer>
     </article>

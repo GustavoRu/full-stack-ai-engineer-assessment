@@ -15,6 +15,13 @@
       "when": 1791058672225,
       "tag": "0001_init_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791301677481,
+      "tag": "0002_add_agent_audit",
+      "breakpoints": true
     }
   ]
 }

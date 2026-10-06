@@ -20,6 +20,9 @@ const answered: Question = {
   usage: { inputTokens: 200, outputTokens: 20 },
   model: 'mock-chat',
   promptVersion: 'qa-v1',
+  mode: 'classic',
+  searches: [],
+  modelCalls: 1,
   createdAt: '2026-10-04T12:00:00.000Z',
 };
 
@@ -53,7 +56,7 @@ describe('QuestionPanel', () => {
     expect(screen.queryByText('Ask your first question')).toBeNull();
     expect(apiFetchMock).toHaveBeenCalledWith('/documents/d-1/questions', {
       method: 'POST',
-      json: { question: 'What is the capital of France?' },
+      json: { question: 'What is the capital of France?', mode: 'classic' },
     });
 
     finish(answered);
@@ -121,5 +124,39 @@ describe('QuestionPanel', () => {
 
     await waitFor(() => expect(input().value).toBe('What is the capital of France?'));
     expect(document.activeElement).toBe(input());
+  });
+
+  it('lets the user ask the model to search the document, and says so while it works', async () => {
+    let finish: (question: Question) => void = () => {};
+    apiFetchMock.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    render(<QuestionPanel documentId="d-1" initialQuestions={[]} />);
+
+    const toggle = screen.getByLabelText(/Let the model search the document/) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+
+    fireEvent.click(toggle);
+    type('What is the capital of France?');
+    fireEvent.click(askButton());
+
+    expect(screen.getByRole('status').textContent).toContain('Searching the document');
+    expect(apiFetchMock).toHaveBeenCalledWith('/documents/d-1/questions', {
+      method: 'POST',
+      json: { question: 'What is the capital of France?', mode: 'agentic' },
+    });
+
+    finish({ ...answered, mode: 'agentic', searches: [{ query: 'capital of France', sourceCount: 1 }], modelCalls: 2 });
+    expect(await screen.findByText('Searched for:')).toBeTruthy();
+    // The choice is kept for the next question
+    expect(toggle.checked).toBe(true);
+  });
+
+  it('does not let the mode change while a question is being answered', () => {
+    apiFetchMock.mockReturnValue(new Promise(() => {}));
+    render(<QuestionPanel documentId="d-1" initialQuestions={[]} />);
+
+    type('What is the capital of France?');
+    fireEvent.click(askButton());
+
+    expect((screen.getByLabelText(/Let the model search the document/) as HTMLInputElement).disabled).toBe(true);
   });
 });

@@ -33,7 +33,7 @@ function setup(overrides: Overrides = {}, policy: Partial<RetryPolicy> = {}, str
   type Structured = ReturnType<LangChainChat['withStructuredOutput']>['invoke'];
   const model: LangChainChat = {
     invoke: plain as unknown as Plain,
-    bindTools: vi.fn((_tools: unknown[]) => ({ invoke: bound as unknown as Plain })),
+    bindTools: vi.fn((_tools: unknown[], _options?: unknown) => ({ invoke: bound as unknown as Plain })),
     withStructuredOutput: vi.fn((_schema: object, _config: { includeRaw: true }) => ({
       invoke: structured as unknown as Structured,
     })),
@@ -124,6 +124,18 @@ describe('LangChainChatModel: tools', () => {
     expect(result.toolCalls).toEqual([{ id: 'call-1', name: 'search_document', args: { query: 'capital' } }]);
     expect(result.assistantMessage.providerMessage).toBe(original);
     expect(result.assistantMessage.toolCalls).toEqual(result.toolCalls);
+  });
+
+  it('asks the provider to call a tool only when the request requires it', async () => {
+    const request = { system: 's', messages: [{ role: 'user' as const, content: 'q' }], tools, maxOutputTokens: 800 };
+
+    const free = setup();
+    await free.adapter.generate(request);
+    expect(vi.mocked(free.model.bindTools).mock.calls[0]).toHaveLength(1);
+
+    const forced = setup();
+    await forced.adapter.generate({ ...request, requireToolCall: true });
+    expect(vi.mocked(forced.model.bindTools).mock.calls[0][1]).toEqual({ tool_choice: 'any' });
   });
 
   it('joins the text blocks of a reply whose content is a list of blocks', async () => {

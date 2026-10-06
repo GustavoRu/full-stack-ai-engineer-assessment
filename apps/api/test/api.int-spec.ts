@@ -1,11 +1,11 @@
 import type { AddressInfo } from 'node:net';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { like } from 'drizzle-orm';
+import { eq, like } from 'drizzle-orm';
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
 import { type Database, DRIZZLE } from '../src/database/database.module.js';
-import { users } from '../src/database/schema.js';
+import { questions, users } from '../src/database/schema.js';
 
 // Runs the real app against the Compose database, with the offline LLM provider
 
@@ -156,5 +156,101 @@ describe('deletion', () => {
     expect((await call('DELETE', path, { token: alice })).status).toBe(204);
     expect((await call('GET', `${path}/questions`, { token: alice })).status).toBe(404);
     expect((await call('GET', path, { token: alice })).status).toBe(404);
+  });
+});
+
+describe('answer modes', () => {
+  // Uploads are limited to 5 per minute per user, so this block has its own user and two shared documents
+  let dave: string;
+  let france: { id: string };
+
+  beforeAll(async () => {
+    dave = await signUp('dave');
+    france = await upload(dave, 'Paris is the capital of France.');
+    // The other document is what an unscoped search would wrongly find
+    await upload(dave, 'Berlin is the capital of Germany.');
+  });
+
+  const ask = (document: string, json: object, token = dave) =>
+    call('POST', `/documents/${document}/questions`, { token, json });
+  const historyOf = async (document: string) => (await call('GET', `/documents/${document}/questions`, { token: dave })).body;
+
+  it('answers in agentic mode, records the searches and returns them in the history', async () => {
+    const reply = await ask(france.id, { question: 'What is the capital of France?', mode: 'agentic' });
+
+    expect(reply.status).toBe(201);
+    expect(reply.body).toMatchObject({
+      mode: 'agentic',
+      status: 'answered',
+      modelCalls: 2,
+      promptVersion: 'agent-v1',
+      answer: '[mock] Paris is the capital of France.',
+      searches: [{ query: 'What is the capital of France?', sourceCount: 1 }],
+      citations: [{ chunkIndex: 0, content: 'Paris is the capital of France.' }],
+    });
+
+    const saved = (await historyOf(france.id)).find((item: { id: string }) => item.id === reply.body.id);
+    expect(saved).toMatchObject({
+      mode: 'agentic',
+      modelCalls: 2,
+      searches: [{ query: 'What is the capital of France?', sourceCount: 1 }],
+    });
+  });
+
+  it('answers in classic mode by default and when asked', async () => {
+    for (const json of [{ question: 'Capital?' }, { question: 'Capital?', mode: 'classic' }]) {
+      const reply = await ask(france.id, json);
+      expect(reply.status).toBe(201);
+      expect(reply.body).toMatchObject({ mode: 'classic', modelCalls: 1, searches: [], promptVersion: 'qa-v1' });
+    }
+  });
+
+  it('treats a null mode as no choice', async () => {
+    const reply = await ask(france.id, { question: 'Capital?', mode: null });
+    expect(reply.status).toBe(201);
+    expect(reply.body).toMatchObject({ mode: 'classic', modelCalls: 1 });
+  });
+
+  it('answers 400 for an unknown mode', async () => {
+    expect((await ask(france.id, { question: 'Capital?', mode: 'turbo' })).status).toBe(400);
+  });
+
+  it('keeps the agentic search inside the document that was asked about', async () => {
+    // The question matches the other document better, so an unscoped search would cite it
+    const reply = await ask(france.id, { question: 'Is Berlin the capital of Germany?', mode: 'agentic' });
+
+    expect(reply.status).toBe(201);
+    expect(reply.body.answer).toBe('[mock] Paris is the capital of France.');
+    // An unscoped search would return passages of both documents; this one found only its own
+    expect(reply.body.searches).toEqual([{ query: 'Is Berlin the capital of Germany?', sourceCount: 1 }]);
+    expect(reply.body.citations).toEqual([{ chunkIndex: 0, content: 'Paris is the capital of France.' }]);
+  });
+
+  it("hides another user's document from the agentic mode too", async () => {
+    const reply = await ask(france.id, { question: 'Capital?', mode: 'agentic' }, bob);
+    expect(reply.status).toBe(404);
+  });
+
+  it('reads a row saved without the audit columns as a classic answer with one call', async () => {
+    const db = app.get<Database>(DRIZZLE);
+    const [owner] = await db.select().from(users).where(eq(users.email, `${RUN}-dave@example.com`));
+    await db.insert(questions).values({
+      documentId: france.id,
+      userId: owner.id,
+      question: 'An old question?',
+      answer: 'An old answer.',
+      status: 'answered',
+      citations: [],
+      retrieved: [],
+      promptVersion: 'qa-v1',
+      provider: 'mock',
+      model: 'mock-chat',
+      inputTokens: 1,
+      outputTokens: 1,
+      latencyMs: 1,
+    });
+
+    const old = (await historyOf(france.id)).find((item: { question: string }) => item.question === 'An old question?');
+    expect(old).toMatchObject({ mode: 'classic', searches: [], modelCalls: 1 });
   });
 });
