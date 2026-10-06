@@ -269,7 +269,7 @@ Models, both configurable:
 
 | Purpose | Default | Why |
 |---|---|---|
-| Chat | `gemini-3.1-flash-lite` | Answering from 5 short chunks does not need a large model; available on the free tier (about 15 requests per minute and 500 per day at design time; quotas are per project and shown only in AI Studio) |
+| Chat | `gemini-3.1-flash-lite` | Answering from 5 short chunks does not need a large model; available on the free tier |
 | Embeddings | `gemini-embedding-001` at 768 dimensions | Returns one embedding per text in a single request; chunks use task type `RETRIEVAL_DOCUMENT` and questions use `RETRIEVAL_QUERY` |
 
 Cosine distance does not depend on vector magnitude, so the reduced 768-dimension
@@ -346,7 +346,8 @@ IP otherwise):
 | `POST /api/auth/*` | 10 per minute |
 | Everything else | 60 per minute |
 
-The question limit sits below the provider's 15 requests per minute.
+The question limit is a per-user cap, not derived from a known provider quota: quotas
+are per project and shown only in AI Studio.
 
 ### 6.4 Logging
 
@@ -525,7 +526,7 @@ Target: ECS on Fargate.
 | `ecs.tf` | ECR repositories, cluster, task definitions and services for API and frontend, IAM roles, autoscaling |
 | `rds.tf` | PostgreSQL 17 in private subnets, encrypted, master password managed by RDS in Secrets Manager |
 | `secrets.tf` | Secrets Manager secrets for `GEMINI_API_KEY` and `JWT_SECRET`, without values |
-| `observability.tf` | Log groups with retention, three metric filters on the JSON logs, one failure alarm |
+| `observability.tf` | Log groups with retention, three metric filters on the JSON logs, one failure alarm that notifies an SNS topic with an email subscription |
 | `variables.tf`, `outputs.tf`, `versions.tf` | Inputs, outputs, provider versions |
 
 - **Secrets**: Terraform creates the secrets but not their values, which are set
@@ -626,9 +627,8 @@ cost of *What we give up*.
 
 - Free tier: content sent to Gemini may be used to improve Google products. Do
   not upload sensitive documents. Production would use a paid tier.
-- Free tier quotas cap the app at about 500 questions per day and documents of
-  about 15 pages. These figures date from design time; quotas are per project and
-  shown only in AI Studio.
+- Free tier quotas limit how many questions and how large a document the app can
+  handle. They are per project and shown only in AI Studio.
 - Text-based PDFs only; no OCR, weak handling of tables and columns.
 - No conversation memory; follow-up questions must be self-contained.
 - Citations are per chunk, not per sentence. A valid citation shows the source

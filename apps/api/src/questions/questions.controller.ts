@@ -12,7 +12,7 @@ export class QuestionsController {
   constructor(private readonly questions: QuestionsService) {}
 
   @Post()
-  // One user stays below the provider's 15 requests per minute; several users together can exceed it
+  // Stops one user from spending the provider quota alone; several users together can still exceed it
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   ask(
     @CurrentUser() user: AuthUser,
