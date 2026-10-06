@@ -111,7 +111,8 @@ resource "aws_ecs_task_definition" "api" {
       environment = [for name, value in local.api_environment : { name = name, value = value }]
 
       # Injected by ECS when the task starts; rotating a key means a new secret
-      # version followed by a new deployment
+      # version followed by a new deployment. RDS also rotates its own password
+      # every 7 days by default, which needs a redeployment too (see the README)
       secrets = [
         { name = "GEMINI_API_KEY", valueFrom = aws_secretsmanager_secret.gemini_api_key.arn },
         { name = "JWT_SECRET", valueFrom = aws_secretsmanager_secret.jwt_secret.arn },

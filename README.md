@@ -242,7 +242,13 @@ one query embedding and one chat call. The query embedding costs less than
 | Scenario | Input tokens | Output tokens | 1k requests | 10k requests | 100k requests |
 |---|---|---|---|---|---|
 | Measured on 5 questions about a 4 KB document | 1,262 | 58 | 0.40 USD | 4.03 USD | 40.25 USD |
-| Upper bound: 5 full passages | 1,450 | 100 | 0.51 USD | 5.13 USD | 51.25 USD |
+| 5 full passages, short answer | 1,450 | 100 | 0.51 USD | 5.13 USD | 51.25 USD |
+| Worst case: 5 full passages, a 1,000-character question, 800 output tokens | 1,750 | 800 | 1.64 USD | 16.38 USD | 163.75 USD |
+
+The measured document had 6 chunks and 5 were retrieved, so almost all of it was
+sent. A longer document still sends only 5 passages, so the cost of a question
+does not grow with the document. The worst case is the ceiling set by
+`MAX_QUESTION_CHARS`, `RETRIEVAL_TOP_K` and `MAX_OUTPUT_TOKENS`.
 
 Ingestion is a one-time cost per document. A document at the 50,000-character
 limit is about 15,000 embedding tokens, which is 0.003 USD at 0.20 USD per
@@ -385,8 +391,15 @@ can read only those three. Locally the key lives in `.env`, which git ignores.
 
 **Rotation.** Create a new key at the provider, store it as a new secret version,
 and force a new deployment. New tasks read the new value while old ones drain, so
-there is no downtime, and the old key is revoked afterwards. The database password
-can use the rotation RDS provides.
+there is no downtime, and the old key is revoked afterwards.
+
+The database password is different. Because RDS manages it, RDS rotates it by
+itself every seven days by default, and ECS reads it only when a task starts. After a
+rotation, running tasks keep the old password and fail on every database call
+until they are redeployed, even though the health check still passes. Production
+would need either an EventBridge rule on the rotation event that triggers a new
+deployment, or an API that reads the password from Secrets Manager when it opens
+a connection. Neither is built.
 
 **Config versus code.** Provider, model names, prompt version and limits are
 environment variables fed from Terraform variables. The same image runs in every
@@ -444,4 +457,5 @@ Known limitations:
   content security policy. Long unbroken text can overflow an answer card. An
   oversized file is uploaded fully before the server rejects it.
 - **Not built.** PII redaction, automatic data expiry, an evaluation suite, HTTPS
-  on the load balancer (it needs a domain).
+  on the load balancer (it needs a domain), and reloading the database password
+  after RDS rotates it.
