@@ -46,6 +46,12 @@ variable "db_instance_class" {
   default = "db.t4g.micro"
 }
 
+variable "alert_email" {
+  description = "Address that receives alarm notifications. The default is a placeholder: set a real one"
+  type        = string
+  default     = "oncall@example.com"
+}
+
 variable "log_retention_days" {
   type    = number
   default = 30

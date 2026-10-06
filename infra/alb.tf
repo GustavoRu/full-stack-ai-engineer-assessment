@@ -4,8 +4,9 @@ resource "aws_lb" "main" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
 
-  # A question can take up to about 96 s: three attempts of 30 s each plus waits
-  idle_timeout = 120
+  # A question makes two provider calls in a row (embed the question, then generate),
+  # each up to about 96 s: three attempts of 30 s plus waits. Typically it takes about 10 s
+  idle_timeout = 240
 }
 
 resource "aws_lb_target_group" "api" {

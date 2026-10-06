@@ -85,7 +85,7 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private.id
 }
 
-# Internet -> load balancer -> tasks -> database, and nothing else
+# Internet -> load balancer -> API or frontend tasks; only the API reaches the database
 resource "aws_security_group" "alb" {
   name        = "${var.project}-alb"
   description = "Public HTTP to the load balancer"
@@ -107,15 +107,37 @@ resource "aws_security_group" "alb" {
   }
 }
 
-resource "aws_security_group" "tasks" {
-  name        = "${var.project}-tasks"
-  description = "Traffic from the load balancer to the tasks"
+resource "aws_security_group" "api" {
+  name        = "${var.project}-api"
+  description = "Traffic from the load balancer to the API tasks"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description     = "Frontend and API ports from the load balancer only"
-    from_port       = 3000
+    description     = "API port from the load balancer only"
+    from_port       = 3001
     to_port         = 3001
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# The frontend only serves pages to the browser, so it never talks to the database
+resource "aws_security_group" "web" {
+  name        = "${var.project}-web"
+  description = "Traffic from the load balancer to the frontend tasks"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description     = "Frontend port from the load balancer only"
+    from_port       = 3000
+    to_port         = 3000
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
@@ -130,14 +152,14 @@ resource "aws_security_group" "tasks" {
 
 resource "aws_security_group" "db" {
   name        = "${var.project}-db"
-  description = "PostgreSQL from the tasks only"
+  description = "PostgreSQL from the API tasks only"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description     = "PostgreSQL from the tasks"
+    description     = "PostgreSQL from the API tasks"
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [aws_security_group.tasks.id]
+    security_groups = [aws_security_group.api.id]
   }
 }
