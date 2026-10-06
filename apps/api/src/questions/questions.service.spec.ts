@@ -32,6 +32,7 @@ const settings: Record<string, unknown> = {
   RETRIEVAL_TOP_K: 5,
   MAX_OUTPUT_TOKENS: 800,
   MAX_QUESTION_CHARS: 1000,
+  LLM_TEMPERATURE: 0.2,
 };
 
 function setup(options: { chatText?: string; embeddingModel?: string } = {}) {
@@ -183,6 +184,17 @@ describe('QuestionsService.ask', () => {
       outputTokens: 20,
     });
     expect(JSON.stringify(entry)).not.toMatch(/secret|Paris/i);
+  });
+
+  it('sends no temperature when the setting is empty', async () => {
+    settings.LLM_TEMPERATURE = null;
+    try {
+      const { service, generate } = setup();
+      await service.ask('user-1', 'doc-1', 'What is the capital of France?');
+      expect(generate.mock.calls[0][0].temperature).toBeUndefined();
+    } finally {
+      settings.LLM_TEMPERATURE = 0.2;
+    }
   });
 
   it('rejects blank and oversized questions', async () => {

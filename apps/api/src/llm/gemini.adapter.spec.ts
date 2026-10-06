@@ -1,5 +1,5 @@
 import { ApiError, type GoogleGenAI } from '@google/genai';
-import { GeminiChatModel, GeminiEmbeddingModel, mapGeminiError } from './gemini.adapter.js';
+import { GeminiEmbeddingModel, mapGeminiError } from './gemini.adapter.js';
 import { LlmInvalidResponseError, LlmRateLimitError, LlmUnavailableError } from './llm.errors.js';
 
 const fakeClient = (models: Record<string, unknown>) => ({ models }) as unknown as GoogleGenAI;
@@ -13,43 +13,6 @@ describe('mapGeminiError', () => {
   it('maps other API errors and unknown failures to unavailable', () => {
     expect(mapGeminiError(new ApiError({ message: 'boom', status: 500 }))).toBeInstanceOf(LlmUnavailableError);
     expect(mapGeminiError(new Error('socket hang up'))).toBeInstanceOf(LlmUnavailableError);
-  });
-});
-
-describe('GeminiChatModel', () => {
-  const request = {
-    system: 'system text',
-    messages: [{ role: 'user' as const, content: 'user text' }],
-    responseSchema: { type: 'object' },
-    temperature: 0.2,
-    maxOutputTokens: 800,
-  };
-
-  it('sends the prompt parts and maps text and usage, counting thinking tokens as output', async () => {
-    const generateContent = vi.fn().mockResolvedValue({
-      text: '{"ok":true}',
-      usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 30, thoughtsTokenCount: 10 },
-    });
-    const model = new GeminiChatModel(fakeClient({ generateContent }), 'gemini-test');
-
-    await expect(model.generate(request)).resolves.toMatchObject({ text: '{"ok":true}', inputTokens: 120, outputTokens: 40 });
-    expect(generateContent).toHaveBeenCalledWith({
-      model: 'gemini-test',
-      contents: 'user text',
-      config: {
-        systemInstruction: 'system text',
-        temperature: 0.2,
-        maxOutputTokens: 800,
-        responseMimeType: 'application/json',
-        responseJsonSchema: { type: 'object' },
-      },
-    });
-  });
-
-  it('translates provider failures', async () => {
-    const generateContent = vi.fn().mockRejectedValue(new ApiError({ message: 'quota', status: 429 }));
-    const model = new GeminiChatModel(fakeClient({ generateContent }), 'gemini-test');
-    await expect(model.generate(request)).rejects.toBeInstanceOf(LlmRateLimitError);
   });
 });
 

@@ -16,9 +16,6 @@ import { parseAnswer } from './answer-parser.js';
 import { type QuestionResponse, toQuestionResponse } from './question.response.js';
 import { QuestionsRepository } from './questions.repository.js';
 
-// Low temperature keeps answers close to the sources
-const TEMPERATURE = 0.2;
-
 @Injectable()
 export class QuestionsService {
   private readonly logger = new Logger(QuestionsService.name);
@@ -26,6 +23,8 @@ export class QuestionsService {
   private readonly topK: number;
   private readonly maxOutputTokens: number;
   private readonly maxQuestionChars: number;
+  // Low temperature keeps answers close to the sources; null means the provider's own default
+  private readonly temperature: number | undefined;
 
   constructor(
     private readonly repo: QuestionsRepository,
@@ -39,6 +38,7 @@ export class QuestionsService {
     this.topK = config.get('RETRIEVAL_TOP_K', { infer: true });
     this.maxOutputTokens = config.get('MAX_OUTPUT_TOKENS', { infer: true });
     this.maxQuestionChars = config.get('MAX_QUESTION_CHARS', { infer: true });
+    this.temperature = config.get('LLM_TEMPERATURE', { infer: true }) ?? undefined;
   }
 
   async ask(userId: string, documentId: string, rawQuestion: string): Promise<QuestionResponse> {
@@ -73,7 +73,7 @@ export class QuestionsService {
         system: prompt.system,
         messages: [{ role: 'user', content: prompt.user }],
         responseSchema: prompt.responseSchema,
-        temperature: TEMPERATURE,
+        temperature: this.temperature,
         maxOutputTokens: this.maxOutputTokens,
       });
 

@@ -1,8 +1,7 @@
 import { ApiError, type GoogleGenAI } from '@google/genai';
 import { EMBEDDING_DIMENSIONS } from '../database/schema.js';
-import { textResult } from './chat-result.js';
 import { LlmInvalidResponseError, LlmRateLimitError, LlmUnavailableError } from './llm.errors.js';
-import type { ChatModel, ChatRequest, ChatResult, EmbeddingModel } from './llm.ports.js';
+import type { EmbeddingModel } from './llm.ports.js';
 
 // Each attempt has its own 30 s timeout; 3 attempts means 2 retries, waiting 1-2 s and then 2-4 s (jitter on)
 export const GEMINI_HTTP_OPTIONS = {
@@ -17,39 +16,6 @@ export function mapGeminiError(error: unknown): Error {
     return new LlmRateLimitError('The AI provider quota was exceeded. Try again in a minute.', { cause: error });
   }
   return new LlmUnavailableError('The AI provider is unavailable. Try again later.', { cause: error });
-}
-
-export class GeminiChatModel implements ChatModel {
-  readonly provider = 'gemini';
-
-  constructor(
-    private readonly client: GoogleGenAI,
-    readonly model: string,
-  ) {}
-
-  async generate(request: ChatRequest): Promise<ChatResult> {
-    if (request.tools?.length) throw new Error('The native Gemini adapter does not support tools');
-    const user = request.messages.find((message) => message.role === 'user')?.content ?? '';
-    try {
-      const response = await this.client.models.generateContent({
-        model: this.model,
-        contents: user,
-        config: {
-          systemInstruction: request.system,
-          temperature: request.temperature,
-          maxOutputTokens: request.maxOutputTokens,
-          responseMimeType: 'application/json',
-          responseJsonSchema: request.responseSchema,
-        },
-      });
-      const usage = response.usageMetadata;
-      // Thinking tokens are billed as output
-      const outputTokens = (usage?.candidatesTokenCount ?? 0) + (usage?.thoughtsTokenCount ?? 0);
-      return textResult(response.text ?? '', usage?.promptTokenCount ?? 0, outputTokens);
-    } catch (error) {
-      throw mapGeminiError(error);
-    }
-  }
 }
 
 export class GeminiEmbeddingModel implements EmbeddingModel {
