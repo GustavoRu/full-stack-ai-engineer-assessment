@@ -14,7 +14,7 @@ type Invokable<T> = { invoke(messages: BaseMessage[], options?: InvokeOptions): 
 
 // The slice of a LangChain chat model that this adapter uses
 export interface LangChainChat extends Invokable<AIMessage> {
-  bindTools(tools: ReturnType<typeof tool>[]): Invokable<AIMessage>;
+  bindTools(tools: ReturnType<typeof tool>[], options?: { tool_choice: 'any' }): Invokable<AIMessage>;
   withStructuredOutput(
     schema: object,
     config: { includeRaw: true; method?: StructuredMethod },
@@ -104,7 +104,9 @@ export class LangChainChatModel implements ChatModel {
     const model = this.create({ temperature: request.temperature, maxOutputTokens: request.maxOutputTokens });
 
     if (request.tools?.length) {
-      const bound = model.bindTools(request.tools.map(toLangChainTool));
+      const tools = request.tools.map(toLangChainTool);
+      // 'any' is the value every provider integration understands for "a tool call is required"
+      const bound = request.requireToolCall ? model.bindTools(tools, { tool_choice: 'any' }) : model.bindTools(tools);
       return fromReply(await this.withRetries(request, (signal) => bound.invoke(messages, { signal })));
     }
 

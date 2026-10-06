@@ -10,10 +10,14 @@ type Step = { calls?: ToolCall[]; text?: string; input?: number; output?: number
 
 // A model that replies from a script, and remembers what it was shown on each call
 function scripted(...steps: Step[]) {
-  const seen: { tools: string[]; messages: ChatRequest['messages'] }[] = [];
+  const seen: { tools: string[]; messages: ChatRequest['messages']; required: boolean }[] = [];
   const queue = [...steps];
   const generate = vi.fn(async (request: ChatRequest): Promise<ChatResult> => {
-    seen.push({ tools: (request.tools ?? []).map((tool) => tool.name), messages: [...request.messages] });
+    seen.push({
+      tools: (request.tools ?? []).map((tool) => tool.name),
+      messages: [...request.messages],
+      required: request.requireToolCall === true,
+    });
     const step = queue.shift();
     if (step === undefined) throw new Error('The script has no more replies');
     if (step instanceof Error) throw step;
@@ -129,6 +133,8 @@ describe('runAgentLoop', () => {
 
     expect(seen[1].tools).toEqual(['search_document', 'submit_answer']);
     expect(seen[2].tools).toEqual(['submit_answer']);
+    // A model offered a single tool may still answer in plain text: the last call must force the tool
+    expect(seen.map((call) => call.required)).toEqual([false, false, true]);
     expect(searchFn).toHaveBeenCalledTimes(2);
   });
 

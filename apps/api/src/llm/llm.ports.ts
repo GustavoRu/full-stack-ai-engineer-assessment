@@ -33,6 +33,8 @@ export interface ChatRequest {
   // A structured reply, or tools; when both are set, tools win
   responseSchema?: object;
   tools?: ToolDefinition[];
+  // The model must call one of the tools instead of answering in plain text
+  requireToolCall?: boolean;
   temperature?: number;
   maxOutputTokens: number;
   // Cancels the call when the question's overall deadline passes

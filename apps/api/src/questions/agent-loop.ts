@@ -90,7 +90,8 @@ export async function runAgentLoop(input: AgentInput, usage: AgentUsage): Promis
   // At most maxSearches + 1 model calls: each turn that does not end spends at least one search
   for (let turn = 0; turn <= input.maxSearches; turn++) {
     if (signal.aborted) throw new LlmUnavailableError(TOO_SLOW);
-    const tools = attempts < input.maxSearches ? [template.searchTool, template.submitTool] : [template.submitTool];
+    const canSearch = attempts < input.maxSearches;
+    const tools = canSearch ? [template.searchTool, template.submitTool] : [template.submitTool];
 
     let result: ChatResult;
     try {
@@ -98,6 +99,8 @@ export async function runAgentLoop(input: AgentInput, usage: AgentUsage): Promis
         system: template.system(input.maxSearches),
         messages,
         tools,
+        // With one tool left, a model that is only asked to use it may still answer in plain text
+        requireToolCall: !canSearch,
         temperature: input.temperature,
         maxOutputTokens: input.maxOutputTokens,
         signal,
