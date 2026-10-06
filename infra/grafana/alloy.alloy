@@ -2,6 +2,8 @@
 
 discovery.docker "containers" {
   host = "unix:///var/run/docker.sock"
+  // The default of 60 s would miss a container that starts after Alloy for a whole minute
+  refresh_interval = "5s"
 }
 
 discovery.relabel "app" {
