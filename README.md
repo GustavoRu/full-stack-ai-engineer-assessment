@@ -185,9 +185,13 @@ No single defense is complete, so there are four layers:
 1. **Role separation.** Instructions live in the system instruction. The document
    passages and the question are delimited data, with an explicit rule not to
    follow instructions found there. Delimiters inside the data are escaped.
-2. **Least privilege.** The model has no tools and no data access. Filtering by
-   user and document happens in SQL. The worst outcome of a successful injection
-   is a bad answer about the user's own document.
+2. **Least privilege.** In the classic mode the model has no tools and no data
+   access. In the agentic mode it has one read-only tool, and the server scopes
+   it: the model supplies only the text to search for, while the document and the
+   user come from the authenticated request, and the SQL filters by them. The
+   number of searches and the time per question are capped. Either way, filtering
+   by user and document happens in SQL, and the worst outcome of a successful
+   injection is a bad answer about the user's own document.
 3. **Constrained output.** The response must match a JSON schema and is validated
    again by the API.
 4. **Input limits.** Question length, document size and per-user rate limits.
@@ -199,6 +203,34 @@ chunks of about 1,000 characters with 150 characters of overlap. Pieces are at
 most 300 characters, so chunks fill up and the chunk count is predictable. Each question
 retrieves the 5 nearest chunks of that document by cosine distance. The search is
 exact: it only scans one document's chunks, so it needs no vector index.
+
+### Answer modes
+
+Each question is answered in one of two modes, chosen per question (a checkbox in the
+UI, the optional `mode` field in the API). The classic mode is the default.
+
+| | Classic | Agentic |
+|---|---|---|
+| Who decides what to search | The code: always the 5 nearest passages to the question | The model, through a `search_document` tool |
+| Model calls per question | 1 | 2 to 4 |
+| Prompt | `qa-v1` | `agent-v1` |
+| Good for | Most questions: cheaper and predictable | Questions with several parts, or a first search that misses |
+
+In the agentic mode the model has two tools: `search_document`, which returns the
+best passages of the document being asked about, and `submit_answer`, whose arguments
+are the final answer. The loop is written by hand in `src/questions/agent-loop.ts` and
+owns every limit: at most `AGENT_MAX_SEARCHES` searches (every attempt counts, including
+invalid and repeated ones), a last call that offers only `submit_answer` and requires it
+to be called, and one 120-second deadline per question. The final answer goes through
+the same parser and status rules as the classic mode, so a citation to a passage that
+was never sent still makes the answer `unverified`.
+
+Requiring the tool call on the last turn came from a measurement: with `submit_answer` as
+the only tool offered, Gemini sometimes answered in plain text, which cannot be tied to a
+passage, so a correct answer to a two-part question came back `unverified`.
+
+The searches the model made are stored for audit and shown on the answer card ("Searched
+for: ..."). They are never written to the logs, for the same reason questions are not.
 
 ## Limits
 
@@ -252,6 +284,17 @@ What I simplified, and why:
 - **Ingestion is synchronous.** The upload request extracts, chunks, embeds and
   stores. It caps document size at what fits in the provider's per-minute quota.
 
+## Bonus sections covered
+
+The brief lists optional bonus sections. This project covers four:
+
+- **Tool/function calling with the LLM:** the agentic answer mode.
+- **Cost estimation for 1k / 10k / 100k requests:** the table in "Cost and rate limits", measured against the real provider.
+- **A vector store with retrieval-augmented generation:** pgvector in the same PostgreSQL, with exact search per document.
+- **Per-user data isolation:** every query filters by user and document in SQL, and the integration tests check it on every route, including the agentic mode.
+
+Not built: streaming responses and background queues. Both are explained in "Known limitations".
+
 ## Cost and rate limits
 
 ### What controls cost today
@@ -275,6 +318,7 @@ one query embedding and one chat call. The query embedding costs at most about
 | Scenario | Input tokens | Output tokens | 1k requests | 10k requests | 100k requests |
 |---|---|---|---|---|---|
 | Measured on 5 questions about a 4 KB document | 1,262 | 58 | 0.40 USD | 4.03 USD | 40.25 USD |
+| Agentic mode, measured on 7 questions (those 5, a two-part one and an unanswerable one) | 2,029 | 90 | 0.64 USD | 6.42 USD | 64.23 USD |
 | 5 full passages, short answer | 1,450 | 100 | 0.51 USD | 5.13 USD | 51.25 USD |
 | Worst case: 5 full passages, a 1,000-character question, 800 output tokens | 1,750 | 800 | 1.64 USD | 16.38 USD | 163.75 USD |
 
@@ -282,6 +326,11 @@ The measured document had 6 chunks and 5 were retrieved, so almost all of it was
 sent. A longer document still sends only 5 passages, so the cost of a question
 does not grow with the document. The worst case is the ceiling set by
 `MAX_QUESTION_CHARS`, `RETRIEVAL_TOP_K` and `MAX_OUTPUT_TOKENS`.
+
+The agentic mode cost about 1.6 times the classic mode in my measurements (2.3 model
+calls per question on average, 4 for the two-part question), and its latency varies
+with the provider's load: on the day I measured, 14.9 seconds on average for the classic
+mode and 23.9 for the agentic one.
 
 Ingestion is a one-time cost per document. A document at the 50,000-character
 limit is about 15,000 embedding tokens, which is about 0.003 USD at 0.20 USD per
@@ -509,6 +558,11 @@ Known limitations:
   APIs, because I have no keys. How each handles structured output, and whether a
   newer model accepts the parameters I send, is untested. Reasoning models may need
   `LLM_TEMPERATURE` left empty.
+- **Agentic mode.** It makes two to four model calls per question, so it costs more and
+  its latency grows and varies with the provider's load. A question with more parts than
+  `AGENT_MAX_SEARCHES` can be answered only in part. The user sees the pending card until
+  the answer arrives, because the steps are not streamed. A model that answers in plain
+  text instead of calling `submit_answer` gives an `unverified` answer.
 - **Answer completeness.** An idea split across two chunks can produce an
   incomplete answer with a valid citation. Sending neighbouring chunks is the
   first improvement I would make.

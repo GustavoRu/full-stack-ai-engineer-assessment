@@ -1,7 +1,7 @@
 # LangChain Providers and Agentic Answer Mode: Design
 
 - **Date:** 2026-10-06
-- **Status:** approved in conversation, pending review of this document
+- **Status:** implemented (plans 4 and 5)
 - **Base design:** [2026-10-03-document-qa-assistant-design.md](2026-10-03-document-qa-assistant-design.md). This document only describes what changes; everything else stands.
 - **Branch:** `feat/langchain-tool-calling`
 
@@ -192,7 +192,7 @@ question -> [model + tools] -> search_document(query) -> embed query -> nearest 
 
 1. The model sees the system prompt, the question and both tools.
 2. A search runs only while fewer than `AGENT_MAX_SEARCHES` have run. Beyond that, the tool result says the limit is reached and asks for `submit_answer`.
-3. The call after the last allowed search offers only `submit_answer`.
+3. The call after the last allowed search offers only `submit_answer` and requires a tool call (`requireToolCall`), because a model offered a single tool may still answer in plain text.
 4. Several tool calls in one turn are handled in order. If one of them is `submit_answer`, the loop ends with it and the rest are ignored.
 5. A search with invalid arguments, or the same query as an earlier search (compared trimmed, lowercased and with whitespace collapsed), returns an explanatory tool result instead of passages.
 6. A reply with text and no tool call ends the loop with that text as the answer, status `unverified`, no citations. An empty reply is `LlmInvalidResponseError`.

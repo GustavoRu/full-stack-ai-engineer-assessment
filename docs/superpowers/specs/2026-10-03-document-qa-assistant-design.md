@@ -37,6 +37,8 @@ Success criteria:
 - Terraform for AWS, written and validated, never applied.
 - Optional Grafana dashboards over the audit table and the live backend logs (Loki),
   behind a Compose profile.
+- An agentic answer mode, chosen per question, where the model searches the document
+  through a tool (see the 2026-10-06 design).
 - A demo account created at startup from environment variables, for local use.
 - README with architecture, AI design, trade-offs, run instructions, and a cost
   table for 1k, 10k and 100k requests.
@@ -45,7 +47,7 @@ Success criteria:
 
 - Conversation memory: each question is independent.
 - Scanned PDFs (OCR), tables and multi-column layout handling.
-- Streaming, tool calling, background queues.
+- Streaming, background queues.
 - Refresh tokens, password reset, email verification.
 - Automatic data expiry (explained in the README, not built).
 - PII detection or redaction (explained in the README, not built).
@@ -310,9 +312,11 @@ No single defense is complete, so the design layers four.
 1. **Role separation.** Instructions go in the system instruction. Document text
    and the question are delimited data with an explicit instruction not to obey
    them.
-2. **Least privilege.** The model has no tools and no data access. Filtering by
-   user and document happens in SQL. The worst outcome of a successful injection
-   is a bad answer about the user's own document.
+2. **Least privilege.** The classic mode gives the model no tools. The agentic mode
+   gives it one read-only search tool scoped by the server: the model supplies only
+   the query, and the document and user come from the request. Searches and time are
+   capped. Filtering by user and document happens in SQL. The worst outcome of a
+   successful injection is a bad answer about the user's own document.
 3. **Constrained output.** The response must match a schema, is validated, and
    is rendered as plain text, never as HTML or Markdown.
 4. **Input limits.** Question length, document size, and per-user rate limits.
@@ -504,6 +508,9 @@ committed; `.env` is ignored by git.
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | none | Yes |
 | `OPENAI_CHAT_MODEL`, `OPENAI_EMBEDDING_MODEL`, `ANTHROPIC_CHAT_MODEL` | `gpt-4o-mini`, `text-embedding-3-small`, `claude-haiku-4-5` | |
 | `LLM_TEMPERATURE` | `0.2` | |
+| `DEFAULT_ANSWER_MODE` | `classic` | |
+| `AGENT_PROMPT_VERSION` | `agent-v1` | |
+| `AGENT_MAX_SEARCHES`, `AGENT_TOP_K` | `3`, `3` | |
 | `PROMPT_VERSION` | `qa-v1` | |
 | `MAX_UPLOAD_BYTES`, `MAX_DOCUMENT_CHARS`, `MAX_QUESTION_CHARS` | see 6.3 | |
 | `RETRIEVAL_TOP_K`, `MAX_OUTPUT_TOKENS` | see 6.3 | |
@@ -645,6 +652,8 @@ cost of *What we give up*.
   was retrieved, not that the answer is complete or faithful to it.
 - An idea split across chunks can produce an incomplete answer. Sending
   neighbor chunks to the model is the first planned improvement.
+- The agentic mode costs more and is slower: two to four model calls per question.
+  A question with more parts than the search limit is answered in part.
 - No refresh tokens; the session lasts one hour.
 - No PII redaction and no automatic data expiry.
 - No partial results without streaming.
