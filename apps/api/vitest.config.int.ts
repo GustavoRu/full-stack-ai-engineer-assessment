@@ -6,6 +6,8 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['test/**/*.int-spec.ts'],
+    // Every file boots the app, and migrating a new database from two files at once fails
+    fileParallelism: false,
     env: {
       LLM_PROVIDER: 'mock',
       JWT_SECRET: 'integration-test-secret-of-32-characters',
