@@ -269,7 +269,7 @@ Models, both configurable:
 
 | Purpose | Default | Why |
 |---|---|---|
-| Chat | `gemini-3.1-flash-lite` | Answering from 5 short chunks does not need a large model; available on the free tier (15 requests per minute, 500 per day) |
+| Chat | `gemini-3.1-flash-lite` | Answering from 5 short chunks does not need a large model; available on the free tier (about 15 requests per minute and 500 per day at design time; quotas are per project and shown only in AI Studio) |
 | Embeddings | `gemini-embedding-001` at 768 dimensions | Returns one embedding per text in a single request; chunks use task type `RETRIEVAL_DOCUMENT` and questions use `RETRIEVAL_QUERY` |
 
 Cosine distance does not depend on vector magnitude, so the reduced 768-dimension
@@ -627,7 +627,8 @@ cost of *What we give up*.
 - Free tier: content sent to Gemini may be used to improve Google products. Do
   not upload sensitive documents. Production would use a paid tier.
 - Free tier quotas cap the app at about 500 questions per day and documents of
-  about 15 pages.
+  about 15 pages. These figures date from design time; quotas are per project and
+  shown only in AI Studio.
 - Text-based PDFs only; no OCR, weak handling of tables and columns.
 - No conversation memory; follow-up questions must be self-contained.
 - Citations are per chunk, not per sentence. A valid citation shows the source

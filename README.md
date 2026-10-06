@@ -427,8 +427,12 @@ Known limitations:
 - **Answer completeness.** An idea split across two chunks can produce an
   incomplete answer with a valid citation. Sending neighbouring chunks is the
   first improvement I would make.
-- **Free tier.** About 500 questions per day and one large document per minute.
-  Content sent may be used to improve Google's products.
+- **Free tier.** Gemini quotas are per project and only shown in Google AI
+  Studio, so check yours. I sized the defaults for roughly 15 chat requests per
+  minute, 500 per day and 100 embedding requests per minute: figures from design
+  time that I could not confirm on Google's public pages. When a quota runs out
+  the API answers 429 and the UI asks to try again. Content sent may be used to
+  improve Google's products.
 - **Documents.** Text-based PDFs only. Tables and multi-column layouts extract
   poorly. PDF parsing runs on the request thread.
 - **Sessions.** No refresh token; the session lasts one hour. A token for a
