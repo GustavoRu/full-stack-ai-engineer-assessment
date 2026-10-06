@@ -19,7 +19,7 @@ export class QuestionsController {
     @Param('documentId', ParseUUIDPipe) documentId: string,
     @Body() dto: AskQuestionDto,
   ) {
-    return this.questions.ask(user.id, documentId, dto.question);
+    return this.questions.ask(user.id, documentId, dto.question, dto.mode);
   }
 
   @Get()

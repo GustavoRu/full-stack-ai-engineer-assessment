@@ -6,7 +6,7 @@ import type { DocumentsService } from '../documents/documents.service.js';
 import { textResult } from '../llm/chat-result.js';
 import { LlmInvalidResponseError } from '../llm/llm.errors.js';
 import type { ChatModel, ChatRequest } from '../llm/llm.ports.js';
-import { MockEmbeddingModel } from '../llm/mock.adapter.js';
+import { MockChatModel, MockEmbeddingModel } from '../llm/mock.adapter.js';
 import type { RetrievedChunk } from './answer-parser.js';
 import type { QuestionsRepository } from './questions.repository.js';
 import { QuestionsService } from './questions.service.js';
@@ -33,9 +33,13 @@ const settings: Record<string, unknown> = {
   MAX_OUTPUT_TOKENS: 800,
   MAX_QUESTION_CHARS: 1000,
   LLM_TEMPERATURE: 0.2,
+  DEFAULT_ANSWER_MODE: 'classic',
+  AGENT_PROMPT_VERSION: 'agent-v1',
+  AGENT_MAX_SEARCHES: 3,
+  AGENT_TOP_K: 3,
 };
 
-function setup(options: { chatText?: string; embeddingModel?: string } = {}) {
+function setup(options: { chatText?: string; embeddingModel?: string; chat?: ChatModel } = {}) {
   const repo = {
     findNearestChunks: vi.fn().mockResolvedValue(retrieved),
     create: vi.fn(
@@ -50,7 +54,7 @@ function setup(options: { chatText?: string; embeddingModel?: string } = {}) {
   const generate = vi.fn(async (_request: ChatRequest) =>
     textResult(options.chatText ?? JSON.stringify({ answerable: true, answer: 'Paris.', citations: [1] }), 100, 20),
   );
-  const chat: ChatModel = { provider: 'test-provider', model: 'test-chat', generate };
+  const chat: ChatModel = options.chat ?? { provider: 'test-provider', model: 'test-chat', generate };
   const config = { get: (key: string) => settings[key] } as unknown as ConfigService<Env, true>;
   const service = new QuestionsService(
     repo as unknown as QuestionsRepository,
@@ -235,5 +239,109 @@ describe('QuestionsService.history', () => {
 
     expect(repo.findChunkContents).toHaveBeenCalledWith('doc-1', [3]);
     expect(history[0].citations).toEqual([{ chunkIndex: 3, content: 'Paris is the capital of France.' }]);
+  });
+});
+
+describe('QuestionsService.ask: answer modes', () => {
+  const question = 'What is the capital of France?';
+
+  it('stores a classic answer as one call without searches', async () => {
+    const { service, repo } = setup();
+    const response = await service.ask('user-1', 'doc-1', question);
+
+    expect(response).toMatchObject({ mode: 'classic', searches: [], modelCalls: 1 });
+    expect(repo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'classic', searches: [], modelCalls: 1, promptVersion: 'qa-v1' }),
+    );
+  });
+
+  it('answers in agentic mode: the model searches the document and cites what it found', async () => {
+    const { service, repo } = setup({ chat: new MockChatModel() });
+    const response = await service.ask('user-1', 'doc-1', question, 'agentic');
+
+    expect(response).toMatchObject({
+      mode: 'agentic',
+      status: 'answered',
+      modelCalls: 2,
+      promptVersion: 'agent-v1',
+      searches: [{ query: question, sourceCount: 2 }],
+      citations: [{ chunkIndex: 3, content: 'Paris is the capital of France.' }],
+    });
+    expect(response.usage.inputTokens).toBeGreaterThan(0);
+    // The search is scoped to the document of the request and limited by AGENT_TOP_K
+    expect(repo.findNearestChunks).toHaveBeenCalledWith('doc-1', expect.any(Array), 3);
+    expect(repo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'agentic',
+        modelCalls: 2,
+        promptVersion: 'agent-v1',
+        searches: [{ query: question, chunkIndexes: [3, 7] }],
+        retrieved: [
+          { chunkIndex: 3, distance: 0.1 },
+          { chunkIndex: 7, distance: 0.4 },
+        ],
+      }),
+    );
+  });
+
+  it('uses the default mode of the settings when the request does not choose one', async () => {
+    settings.DEFAULT_ANSWER_MODE = 'agentic';
+    try {
+      const { service } = setup({ chat: new MockChatModel() });
+      await expect(service.ask('user-1', 'doc-1', question)).resolves.toMatchObject({ mode: 'agentic' });
+    } finally {
+      settings.DEFAULT_ANSWER_MODE = 'classic';
+    }
+  });
+
+  it('refuses to start with an unknown agent prompt version', () => {
+    settings.AGENT_PROMPT_VERSION = 'agent-v9';
+    try {
+      expect(() => setup()).toThrow(/agent-v9/);
+    } finally {
+      settings.AGENT_PROMPT_VERSION = 'agent-v1';
+    }
+  });
+
+  it('logs the mode, the calls and the number of searches, but never the queries', async () => {
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const { service } = setup({ chat: new MockChatModel() });
+    await service.ask('user-1', 'doc-1', question, 'agentic');
+
+    const entry = log.mock.calls[0]?.[0];
+    log.mockRestore();
+    expect(entry).toMatchObject({
+      event: 'question_answered',
+      mode: 'agentic',
+      modelCalls: 2,
+      searchCount: 1,
+      promptVersion: 'agent-v1',
+    });
+    expect(JSON.stringify(entry)).not.toMatch(/capital|France/i);
+  });
+
+  it('logs the tokens already spent when the model fails halfway, and still no queries', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const firstCall = new MockChatModel();
+    let calls = 0;
+    const flaky: ChatModel = {
+      provider: 'mock',
+      model: 'mock-chat',
+      generate: async (request) => {
+        calls += 1;
+        if (calls === 2) throw new Error('provider failed');
+        return firstCall.generate(request);
+      },
+    };
+    const { service, repo } = setup({ chat: flaky });
+
+    await expect(service.ask('user-1', 'doc-1', question, 'agentic')).rejects.toThrow('provider failed');
+
+    const entry = warn.mock.calls[0]?.[0] as { inputTokens?: number; modelCalls?: number };
+    warn.mockRestore();
+    expect(entry).toMatchObject({ event: 'question_failed', mode: 'agentic', modelCalls: 1 });
+    expect(entry.inputTokens).toBeGreaterThan(0);
+    expect(JSON.stringify(entry)).not.toMatch(/capital|France/i);
+    expect(repo.create).not.toHaveBeenCalled();
   });
 });
