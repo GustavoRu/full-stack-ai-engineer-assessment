@@ -78,9 +78,9 @@ describe('DocumentsService.create', () => {
     const { service } = setup();
     await service.create('user-1', { text: 'Top secret content.', title: 'Secret plan' });
 
-    const line = String(log.mock.calls[0]?.[0]);
+    const entry = log.mock.calls[0]?.[0];
     log.mockRestore();
-    expect(JSON.parse(line)).toMatchObject({
+    expect(entry).toMatchObject({
       event: 'document_ingested',
       userId: 'user-1',
       documentId: 'doc-1',
@@ -89,7 +89,7 @@ describe('DocumentsService.create', () => {
       chunkCount: 1,
       embeddingModel: 'mock-embedding',
     });
-    expect(line).not.toMatch(/secret/i);
+    expect(JSON.stringify(entry)).not.toMatch(/secret/i);
   });
 
   it('logs a failed ingestion without the document text', async () => {
@@ -98,16 +98,16 @@ describe('DocumentsService.create', () => {
     embedSpy.mockRejectedValueOnce(new LlmRateLimitError('quota'));
     await expect(service.create('user-1', { text: 'Top secret content.' })).rejects.toThrow('quota');
 
-    const line = String(warn.mock.calls[0]?.[0]);
+    const entry = warn.mock.calls[0]?.[0];
     warn.mockRestore();
-    expect(JSON.parse(line)).toMatchObject({
+    expect(entry).toMatchObject({
       event: 'document_ingest_failed',
       userId: 'user-1',
       chunkCount: 1,
       embeddingModel: 'mock-embedding',
       error: 'LlmRateLimitError',
     });
-    expect(line).not.toMatch(/secret/i);
+    expect(JSON.stringify(entry)).not.toMatch(/secret/i);
   });
 
   it('rejects a request with both or neither of file and text', async () => {

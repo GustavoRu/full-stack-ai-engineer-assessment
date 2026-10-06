@@ -53,7 +53,7 @@ export class SafeExceptionFilter extends BaseExceptionFilter {
 
     // Client mistakes such as a malformed body are not worth an error line
     if (body.statusCode >= 500) {
-      this.safeLogger.error(JSON.stringify(describeError(exception)));
+      this.safeLogger.error(describeError(exception));
     }
   }
 }

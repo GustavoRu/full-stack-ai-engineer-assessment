@@ -98,31 +98,27 @@ export class QuestionsService {
         latencyMs,
       });
 
-      this.logger.log(
-        JSON.stringify({
-          event: 'question_answered',
-          ...this.callMetadata(userId, documentId),
-          questionId: saved.id,
-          status: saved.status,
-          inputTokens: saved.inputTokens,
-          outputTokens: saved.outputTokens,
-          latencyMs,
-        }),
-      );
+      this.logger.log({
+        event: 'question_answered',
+        ...this.callMetadata(userId, documentId),
+        questionId: saved.id,
+        status: saved.status,
+        inputTokens: saved.inputTokens,
+        outputTokens: saved.outputTokens,
+        latencyMs,
+      });
 
       return toQuestionResponse(saved, new Map(retrieved.map((chunk) => [chunk.chunkIndex, chunk.content])));
     } catch (error) {
       // Token counts are present when the model was billed before the failure
-      this.logger.warn(
-        JSON.stringify({
-          event: 'question_failed',
-          ...this.callMetadata(userId, documentId),
-          error: error instanceof Error ? error.name : 'unknown',
-          inputTokens: result?.inputTokens,
-          outputTokens: result?.outputTokens,
-          latencyMs: Date.now() - startedAt,
-        }),
-      );
+      this.logger.warn({
+        event: 'question_failed',
+        ...this.callMetadata(userId, documentId),
+        error: error instanceof Error ? error.name : 'unknown',
+        inputTokens: result?.inputTokens,
+        outputTokens: result?.outputTokens,
+        latencyMs: Date.now() - startedAt,
+      });
       throw error;
     }
   }

@@ -12,6 +12,12 @@ export function configureApp(app: INestApplication): ConfigService<Env, true> {
   app.enableCors({ origin: config.get('WEB_ORIGIN', { infer: true }) });
   app.enableShutdownHooks();
 
+  // Behind a load balancer the client address comes from X-Forwarded-For
+  const proxyHops = config.get('TRUST_PROXY_HOPS', { infer: true });
+  if (proxyHops > 0) {
+    app.getHttpAdapter().getInstance().set('trust proxy', proxyHops);
+  }
+
   if (config.get('API_DOCS_ENABLED', { infer: true })) {
     const docsConfig = new DocumentBuilder()
       .setTitle('Document Q&A Assistant')

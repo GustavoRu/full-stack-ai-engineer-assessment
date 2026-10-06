@@ -44,6 +44,8 @@ class DatabaseLifecycle implements OnModuleInit, OnApplicationShutdown {
           database: config.get('DB_NAME', { infer: true }),
           user: config.get('DB_USER', { infer: true }),
           password: config.get('DB_PASSWORD', { infer: true }),
+          // Verifies the server certificate against Node's trust store plus NODE_EXTRA_CA_CERTS
+          ssl: config.get('DB_SSL', { infer: true }),
         }),
     },
     {

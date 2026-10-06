@@ -2,20 +2,26 @@ import { z } from 'zod';
 
 const positiveInt = (fallback: number) => z.coerce.number().int().positive().default(fallback);
 
+const flag = (fallback: 'true' | 'false') =>
+  z
+    .enum(['true', 'false'])
+    .default(fallback)
+    .transform((value) => value === 'true');
+
 const envSchema = z
   .object({
     PORT: positiveInt(3001),
     WEB_ORIGIN: z.string().default('http://localhost:3000'),
-    API_DOCS_ENABLED: z
-      .enum(['true', 'false'])
-      .default('true')
-      .transform((value) => value === 'true'),
+    API_DOCS_ENABLED: flag('true'),
+    // Number of reverse proxies in front of the API; 0 means it is reached directly
+    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
 
     DB_HOST: z.string().default('localhost'),
     DB_PORT: positiveInt(5432),
     DB_NAME: z.string().default('docqa'),
     DB_USER: z.string().default('docqa'),
     DB_PASSWORD: z.string().default('docqa'),
+    DB_SSL: flag('false'),
 
     JWT_SECRET: z.string().min(32),
     JWT_EXPIRES_IN_SECONDS: positiveInt(3600),

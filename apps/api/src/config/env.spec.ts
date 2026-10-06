@@ -33,6 +33,18 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...base, API_DOCS_ENABLED: 'maybe' })).toThrow(/API_DOCS_ENABLED/);
   });
 
+  it('keeps database TLS and proxy trust off by default and reads them when set', () => {
+    const defaults = validateEnv(base);
+    expect(defaults.DB_SSL).toBe(false);
+    expect(defaults.TRUST_PROXY_HOPS).toBe(0);
+
+    const production = validateEnv({ ...base, DB_SSL: 'true', TRUST_PROXY_HOPS: '1' });
+    expect(production.DB_SSL).toBe(true);
+    expect(production.TRUST_PROXY_HOPS).toBe(1);
+
+    expect(() => validateEnv({ ...base, TRUST_PROXY_HOPS: '-1' })).toThrow(/TRUST_PROXY_HOPS/);
+  });
+
   it('rejects an unknown provider', () => {
     expect(() => validateEnv({ ...base, LLM_PROVIDER: 'openai' })).toThrow(/LLM_PROVIDER/);
   });

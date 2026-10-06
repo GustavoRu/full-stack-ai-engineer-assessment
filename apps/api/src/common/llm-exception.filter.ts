@@ -21,9 +21,7 @@ export class LlmExceptionFilter implements ExceptionFilter {
     const body = toHttpError(error);
     const providerStatus = (error.cause as { status?: number } | undefined)?.status;
     // Metadata only: provider messages could echo user content
-    this.logger.warn(
-      JSON.stringify({ event: 'llm_error', type: error.name, statusCode: body.statusCode, providerStatus }),
-    );
+    this.logger.warn({ event: 'llm_error', type: error.name, statusCode: body.statusCode, providerStatus });
     host.switchToHttp().getResponse().status(body.statusCode).json(body);
   }
 }

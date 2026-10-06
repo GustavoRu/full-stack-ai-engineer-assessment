@@ -145,9 +145,9 @@ describe('QuestionsService.ask', () => {
     const { service } = setup({ chatText: 'not json' });
     await expect(service.ask('user-1', 'doc-1', 'A very secret question?')).rejects.toThrow(LlmInvalidResponseError);
 
-    const line = String(warn.mock.calls[0]?.[0]);
+    const entry = warn.mock.calls[0]?.[0];
     warn.mockRestore();
-    expect(JSON.parse(line)).toMatchObject({
+    expect(entry).toMatchObject({
       event: 'question_failed',
       userId: 'user-1',
       documentId: 'doc-1',
@@ -158,7 +158,7 @@ describe('QuestionsService.ask', () => {
       inputTokens: 100,
       outputTokens: 20,
     });
-    expect(line).not.toContain('secret');
+    expect(JSON.stringify(entry)).not.toContain('secret');
   });
 
   it('rejects blank and oversized questions', async () => {

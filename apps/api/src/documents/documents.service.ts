@@ -73,14 +73,12 @@ export class DocumentsService {
     try {
       vectors = await this.embeddings.embedDocuments(textChunks.map((chunk) => chunk.content));
     } catch (error) {
-      this.logger.warn(
-        JSON.stringify({
-          event: 'document_ingest_failed',
-          ...metadata,
-          error: error instanceof Error ? error.name : 'unknown',
-          latencyMs: Date.now() - startedAt,
-        }),
-      );
+      this.logger.warn({
+        event: 'document_ingest_failed',
+        ...metadata,
+        error: error instanceof Error ? error.name : 'unknown',
+        latencyMs: Date.now() - startedAt,
+      });
       throw error;
     }
 
@@ -89,14 +87,12 @@ export class DocumentsService {
       textChunks.map((chunk, i) => ({ chunkIndex: chunk.index, content: chunk.content, embedding: vectors[i] })),
     );
 
-    this.logger.log(
-      JSON.stringify({
-        event: 'document_ingested',
-        ...metadata,
-        documentId: created.id,
-        latencyMs: Date.now() - startedAt,
-      }),
-    );
+    this.logger.log({
+      event: 'document_ingested',
+      ...metadata,
+      documentId: created.id,
+      latencyMs: Date.now() - startedAt,
+    });
     return created;
   }
 

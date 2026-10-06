@@ -327,6 +327,8 @@ In `apps/api/Dockerfile`, in the runtime stage, add before `USER node`:
 
 ```dockerfile
 # Amazon RDS certificate authorities, used when NODE_EXTRA_CA_CERTS points here
+# The directory is created first because ADD applies --chmod to directories it creates
+RUN mkdir /app/certs
 ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/certs/rds-global-bundle.pem
 ```
 
@@ -339,7 +341,7 @@ curl -s --retry 20 --retry-all-errors --retry-delay 2 localhost:3001/api/health;
 docker compose exec -T api sh -c 'head -1 /app/certs/rds-global-bundle.pem; id -un'
 ```
 
-Expected: `{"status":"ok"}`, then `-----BEGIN CERTIFICATE-----` and `node`.
+Expected: `{"status":"ok"}`, then `-----BEGIN CERTIFICATE-----` and `node`. Without the `mkdir` the file is unreadable, because the directory loses its execute bit.
 
 - [ ] **Step 13: Commit**
 
