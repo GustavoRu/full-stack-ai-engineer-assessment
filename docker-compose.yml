@@ -47,5 +47,26 @@ services:
       api:
         condition: service_healthy
 
+  # Optional: docker compose --profile observability up -d, then http://localhost:3002
+  grafana:
+    image: grafana/grafana:13.2.3
+    profiles: ["observability"]
+    environment:
+      # Local convenience only: anyone on this machine can view the dashboard
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/docqa.json
+      DB_NAME: ${DB_NAME:-docqa}
+      DB_USER: ${DB_USER:-docqa}
+      DB_PASSWORD: ${DB_PASSWORD:-docqa}
+    ports:
+      - "127.0.0.1:3002:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   db_data:

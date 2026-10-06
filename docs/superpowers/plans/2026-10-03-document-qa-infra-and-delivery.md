@@ -1442,7 +1442,7 @@ providers:
     {
       "id": 3,
       "title": "Estimated cost (USD)",
-      "description": "Tokens times the list price of gemini-3.1-flash-lite: 0.25 USD per million input tokens and 1.50 per million output tokens",
+      "description": "Gemini questions only (the offline mock provider costs nothing): tokens times the list price of gemini-3.1-flash-lite, 0.25 USD per million input tokens and 1.50 per million output tokens",
       "type": "stat",
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "docqa-postgres" },
       "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
@@ -1452,7 +1452,7 @@ providers:
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT coalesce(sum(input_tokens) * 0.25 / 1e6 + sum(output_tokens) * 1.50 / 1e6, 0) AS usd FROM questions WHERE $__timeFilter(created_at)"
+          "rawSql": "SELECT coalesce(sum(input_tokens) * 0.25 / 1e6 + sum(output_tokens) * 1.50 / 1e6, 0) AS usd FROM questions WHERE provider = 'gemini' AND $__timeFilter(created_at)"
         }
       ]
     },
