@@ -1,0 +1,67 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { type AuthUser, CurrentUser } from '../auth/current-user.decorator.js';
+import { CreateDocumentDto } from './create-document.dto.js';
+import { toDocumentResponse } from './document.response.js';
+import { DocumentsService } from './documents.service.js';
+import { decodeFilename, type IncomingFile } from './text-extractor.js';
+
+@ApiTags('documents')
+@ApiBearerAuth()
+@Controller('documents')
+export class DocumentsController {
+  constructor(private readonly documents: DocumentsService) {}
+
+  @Post()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary', description: 'A .pdf, .txt or .md file' },
+        text: { type: 'string', description: 'Pasted text, instead of a file' },
+        title: { type: 'string', maxLength: 200 },
+      },
+    },
+  })
+  @UseInterceptors(FileInterceptor('file'))
+  async create(
+    @CurrentUser() user: AuthUser,
+    // Undefined when the request has no parseable body
+    @Body() dto: CreateDocumentDto | undefined,
+    @UploadedFile() upload?: IncomingFile,
+  ) {
+    const file = upload && { originalname: decodeFilename(upload.originalname), buffer: upload.buffer };
+    return toDocumentResponse(await this.documents.create(user.id, { file, text: dto?.text, title: dto?.title }));
+  }
+
+  @Get()
+  async list(@CurrentUser() user: AuthUser) {
+    return (await this.documents.list(user.id)).map(toDocumentResponse);
+  }
+
+  @Get(':id')
+  async get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return toDocumentResponse(await this.documents.get(id, user.id));
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.documents.remove(id, user.id);
+  }
+}

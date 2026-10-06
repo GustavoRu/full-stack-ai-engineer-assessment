@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: DocQA PostgreSQL
+    uid: docqa-postgres
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: db:5432
+    user: ${DB_USER}
+    isDefault: true
+    editable: false
+    jsonData:
+      database: ${DB_NAME}
+      sslmode: disable
+    secureJsonData:
+      password: ${DB_PASSWORD}

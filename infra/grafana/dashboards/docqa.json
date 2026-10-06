@@ -1,0 +1,107 @@
+{
+  "uid": "docqa",
+  "title": "Document Q&A",
+  "tags": ["docqa"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Questions per hour",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docqa-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, count(*) AS questions FROM questions WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Answers by status",
+      "type": "piechart",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docqa-postgres" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "options": { "reduceOptions": { "values": true, "calcs": [] }, "legend": { "displayMode": "table", "values": ["value", "percent"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT status, count(*) AS answers FROM questions WHERE $__timeFilter(created_at) GROUP BY status ORDER BY status"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Estimated cost (USD)",
+      "description": "Gemini questions only (the offline mock provider costs nothing): tokens times the list price of gemini-3.1-flash-lite, 0.25 USD per million input tokens and 1.50 per million output tokens",
+      "type": "stat",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docqa-postgres" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 4 } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT coalesce(sum(input_tokens) * 0.25 / 1e6 + sum(output_tokens) * 1.50 / 1e6, 0) AS usd FROM questions WHERE provider = 'gemini' AND $__timeFilter(created_at)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Latency p50 and p95 (ms)",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docqa-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms) AS p50, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95 FROM questions WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Tokens per hour",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docqa-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, sum(input_tokens) AS input, sum(output_tokens) AS output FROM questions WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "By model and prompt version",
+      "description": "Compares prompt versions and models: volume, share of questions the document did not cover, and latency",
+      "type": "table",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docqa-postgres" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT model, prompt_version, count(*) AS questions, round(100.0 * count(*) FILTER (WHERE status = 'not_found') / count(*), 1) AS not_found_pct, round(100.0 * count(*) FILTER (WHERE status = 'unverified') / count(*), 1) AS unverified_pct, round(avg(latency_ms)) AS avg_latency_ms, round(avg(input_tokens + output_tokens)) AS avg_tokens FROM questions WHERE $__timeFilter(created_at) GROUP BY model, prompt_version ORDER BY questions DESC"
+        }
+      ]
+    }
+  ]
+}

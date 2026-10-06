@@ -1,0 +1,73 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ${DB_NAME:-docqa}
+      POSTGRES_USER: ${DB_USER:-docqa}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-docqa}
+    ports:
+      # Local access only: the database uses default credentials
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-docqa} -d ${DB_NAME:-docqa}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./apps/api
+    env_file: .env
+    environment:
+      # Inside the Compose network the database is reached by service name
+      DB_HOST: db
+      DB_PORT: 5432
+      PORT: 3001
+    ports:
+      # Local access only: the demo account in .env has public credentials
+      - "127.0.0.1:3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        # The browser calls the API directly, so this is the address as seen from the host
+        NEXT_PUBLIC_API_URL: http://localhost:3001/api
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Optional: docker compose --profile observability up -d, then http://localhost:3002
+  grafana:
+    image: grafana/grafana:13.2.3
+    profiles: ["observability"]
+    environment:
+      # Local convenience only: anyone on this machine can view the dashboard
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/docqa.json
+      DB_NAME: ${DB_NAME:-docqa}
+      DB_USER: ${DB_USER:-docqa}
+      DB_PASSWORD: ${DB_PASSWORD:-docqa}
+    ports:
+      - "127.0.0.1:3002:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:
