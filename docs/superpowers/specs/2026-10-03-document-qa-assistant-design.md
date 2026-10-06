@@ -232,13 +232,16 @@ Content of `qa-v1`:
 interface ChatModel {
   readonly provider: string;
   readonly model: string;
+  // A conversation, not one prompt: it can carry tool calls (see the 2026-10-06 design)
   generate(request: {
     system: string;
-    user: string;
-    responseSchema: object;
-    temperature: number;
+    messages: ChatMessage[];
+    responseSchema?: object;
+    tools?: ToolDefinition[];
+    temperature?: number;
     maxOutputTokens: number;
-  }): Promise<{ text: string; inputTokens: number; outputTokens: number }>;
+    signal?: AbortSignal;
+  }): Promise<ChatResult>; // { text, toolCalls, assistantMessage, inputTokens, outputTokens }
 }
 
 interface EmbeddingModel {
@@ -253,8 +256,8 @@ interface EmbeddingModel {
   from `LLM_PROVIDER` and `EMBEDDING_PROVIDER`. Selection is explicit, not
   inferred from which API key is present.
 - **LangChain chat adapter** (Gemini, OpenAI, Anthropic): up to 3 attempts of
-  30 seconds each, with exponential backoff (1-2 s, then 2-4 s) on 429 and 5xx
-  and on network failures, JSON output constrained by the schema. It maps
+  30 seconds each, with exponential backoff (1-2 s, then 2-4 s) on 408, 429 and
+  5xx and on network failures, but not on errors the library marks as permanent, JSON output constrained by the schema. It maps
   provider failures to domain errors: `LlmRateLimitError`,
   `LlmUnavailableError`, `LlmInvalidResponseError`. Gemini embeddings still use
   the native `@google/genai` client; OpenAI embeddings go through LangChain.
@@ -610,7 +613,7 @@ cost of *What we give up*.
 | RAG with pgvector | Whole document in the prompt; a dedicated vector store | Bounded cost per question; same database as persistence; verifiable citations | Retrieval can miss the relevant chunk, which whole-document prompting never does. A dedicated store scales further |
 | All Node, no Python service | A Python ingestion service | The brief asks for Node or Java; chunking, embedding calls and SQL need nothing Python-specific; one runtime to deploy | Python has the richer AI ecosystem: OCR and layout-aware parsing, evaluation tooling, local models |
 | Own ports, LangChain inside one chat adapter | LangChain throughout | The separation the brief asks for stays in our code, and one adapter serves three providers | A larger dependency surface; Gemini needs a 0.x package |
-| Gemini plus mock, chosen by `LLM_PROVIDER` | More provider adapters; auto-detection by API key | Both adapters are tested; explicit selection is unambiguous | One real provider is thin proof of the abstraction. Someone with only another provider's key must write an adapter |
+| Gemini, OpenAI, Anthropic and mock, chosen by `LLM_PROVIDER` | Auto-detection by API key | Explicit selection is unambiguous, and someone with another provider's key only sets it | Only Gemini is verified against a real API; OpenAI and Anthropic are wired and unit-tested |
 | NestJS | Express, Fastify | The framework the author uses daily; dependency injection fits ports | More boilerplate and indirection than a minimal framework for an app this small |
 | Drizzle | Prisma, TypeORM | Native pgvector types and helpers; SQL-like | No official NestJS module. Prisma and TypeORM are more common in existing NestJS projects |
 | Exact vector search, no index | HNSW index | Search runs inside one document, so exact search is fast and has perfect recall | Does not scale to search across many documents |

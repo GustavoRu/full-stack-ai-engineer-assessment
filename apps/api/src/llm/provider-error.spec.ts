@@ -1,5 +1,5 @@
 import { LlmRateLimitError, LlmUnavailableError } from './llm.errors.js';
-import { RETRYABLE_STATUSES, statusOf, toLlmError } from './provider-error.js';
+import { isRetryableStatus, statusOf, toLlmError } from './provider-error.js';
 
 describe('statusOf', () => {
   it('reads the status from the shapes the providers use', () => {
@@ -32,9 +32,12 @@ describe('toLlmError', () => {
   });
 });
 
-describe('RETRYABLE_STATUSES', () => {
-  it('retries rate limits and server errors but not client errors', () => {
-    for (const status of [429, 500, 502, 503, 504]) expect(RETRYABLE_STATUSES.has(status)).toBe(true);
-    for (const status of [400, 401, 403, 404]) expect(RETRYABLE_STATUSES.has(status)).toBe(false);
+describe('isRetryableStatus', () => {
+  it('retries timeouts, rate limits and every server error, including Anthropic 529', () => {
+    for (const status of [408, 429, 500, 502, 503, 504, 529]) expect(isRetryableStatus(status)).toBe(true);
+  });
+
+  it('does not retry the other client errors', () => {
+    for (const status of [400, 401, 403, 404, 422]) expect(isRetryableStatus(status)).toBe(false);
   });
 });

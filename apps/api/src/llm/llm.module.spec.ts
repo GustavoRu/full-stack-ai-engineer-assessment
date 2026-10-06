@@ -25,6 +25,8 @@ describe('createModels', () => {
     const { chat, embedding } = modelsFor({ LLM_PROVIDER: 'gemini', GEMINI_API_KEY: 'key' });
     expect(chat).toBeInstanceOf(LangChainChatModel);
     expect(chat).toMatchObject({ provider: 'gemini', model: 'gemini-3.1-flash-lite' });
+    // Native JSON-schema output, so the request is the same as the old native client sent
+    expect(chat).toMatchObject({ structuredMethod: 'jsonSchema' });
     expect(embedding).toBeInstanceOf(GeminiEmbeddingModel);
     expect(embedding.model).toBe('gemini-embedding-001');
   });
@@ -32,6 +34,7 @@ describe('createModels', () => {
   it('builds OpenAI for chat and embeddings', () => {
     const { chat, embedding } = modelsFor({ LLM_PROVIDER: 'openai', OPENAI_API_KEY: 'sk-test' });
     expect(chat).toMatchObject({ provider: 'openai', model: 'gpt-4o-mini' });
+    expect((chat as unknown as { structuredMethod?: string }).structuredMethod).toBeUndefined();
     expect(embedding).toBeInstanceOf(OpenAiEmbeddingModel);
     expect(embedding.model).toBe('text-embedding-3-small');
   });

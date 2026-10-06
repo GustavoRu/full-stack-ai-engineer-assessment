@@ -1,3 +1,4 @@
+import { stampRetryable } from '@langchain/core/errors';
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { LlmInvalidResponseError, LlmRateLimitError, LlmUnavailableError } from './llm.errors.js';
 import type { ChatRequest } from './llm.ports.js';
@@ -23,7 +24,7 @@ type Overrides = {
 };
 
 // A stand-in for a LangChain chat model: every entry point is a spy the tests can script
-function setup(overrides: Overrides = {}, policy: Partial<RetryPolicy> = {}) {
+function setup(overrides: Overrides = {}, policy: Partial<RetryPolicy> = {}, structuredMethod?: 'jsonSchema' | 'functionCalling') {
   const structured = overrides.structured ?? vi.fn().mockResolvedValue({ raw: reply('{"ok":true}'), parsed: { ok: true } });
   const bound = overrides.bound ?? vi.fn().mockResolvedValue(reply());
   const plain = overrides.plain ?? vi.fn().mockResolvedValue(reply());
@@ -39,12 +40,13 @@ function setup(overrides: Overrides = {}, policy: Partial<RetryPolicy> = {}) {
   };
   const create = vi.fn(() => model);
   const delay = vi.fn().mockResolvedValue(undefined);
-  const adapter = new LangChainChatModel('test-provider', 'test-model', create, {
-    maxAttempts: 3,
-    attemptTimeoutMs: 1000,
-    delay,
-    ...policy,
-  });
+  const adapter = new LangChainChatModel(
+    'test-provider',
+    'test-model',
+    create,
+    { maxAttempts: 3, attemptTimeoutMs: 1000, delay, ...policy },
+    structuredMethod,
+  );
   return { adapter, model, create, delay, structured, bound, plain };
 }
 
@@ -62,6 +64,22 @@ describe('LangChainChatModel: structured replies', () => {
     expect(messages[1].content).toBe('user text');
     expect(result).toMatchObject({ text: '{"ok":true}', toolCalls: [], inputTokens: 10, outputTokens: 5 });
     expect(result.assistantMessage).toMatchObject({ role: 'assistant', content: '{"ok":true}', toolCalls: [] });
+  });
+
+  it('leaves the structured output method to the library unless the provider asks for one', async () => {
+    const { adapter, model } = setup();
+    await adapter.generate(request);
+    expect(model.withStructuredOutput).toHaveBeenCalledWith(schema, { includeRaw: true });
+
+    const asked = setup({}, {}, 'jsonSchema');
+    await asked.adapter.generate(request);
+    expect(asked.model.withStructuredOutput).toHaveBeenCalledWith(schema, { includeRaw: true, method: 'jsonSchema' });
+  });
+
+  it('does not keep the raw provider message of a structured reply, which could hold a tool call', async () => {
+    const { adapter } = setup();
+    const result = await adapter.generate(request);
+    expect(result.assistantMessage.providerMessage).toBeUndefined();
   });
 
   it('builds the model with the temperature and output limit of the request', async () => {
@@ -185,6 +203,27 @@ describe('LangChainChatModel: failures', () => {
     await expect(adapter.generate(request)).rejects.toBeInstanceOf(LlmUnavailableError);
     expect(structured).toHaveBeenCalledTimes(1);
     expect(delay).not.toHaveBeenCalled();
+  });
+
+  it('does not retry an error the library marks as permanent, such as a blocked prompt', async () => {
+    const structured = vi.fn().mockRejectedValue(stampRetryable(new Error('prompt blocked'), false));
+    const { adapter, delay } = setup({ structured });
+
+    await expect(adapter.generate(request)).rejects.toBeInstanceOf(LlmUnavailableError);
+    expect(structured).toHaveBeenCalledTimes(1);
+    expect(delay).not.toHaveBeenCalled();
+  });
+
+  it('retries a 529 overloaded error and a 408 timeout', async () => {
+    for (const status of [529, 408]) {
+      const structured = vi
+        .fn()
+        .mockRejectedValueOnce({ status })
+        .mockResolvedValueOnce({ raw: reply('{"ok":true}'), parsed: { ok: true } });
+      const { adapter } = setup({ structured });
+      await expect(adapter.generate(request)).resolves.toMatchObject({ text: '{"ok":true}' });
+      expect(structured).toHaveBeenCalledTimes(2);
+    }
   });
 
   it('turns a failure with an unexpected shape into 503 after retrying it as a network error', async () => {

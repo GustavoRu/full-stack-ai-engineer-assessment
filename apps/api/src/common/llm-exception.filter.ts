@@ -1,5 +1,6 @@
 import { type ArgumentsHost, Catch, type ExceptionFilter, Logger } from '@nestjs/common';
 import { LlmInvalidResponseError, LlmRateLimitError, LlmUnavailableError } from '../llm/llm.errors.js';
+import { statusOf } from '../llm/provider-error.js';
 
 type HttpErrorBody = { statusCode: number; message: string; error: string };
 
@@ -19,7 +20,7 @@ export class LlmExceptionFilter implements ExceptionFilter {
 
   catch(error: Error, host: ArgumentsHost) {
     const body = toHttpError(error);
-    const providerStatus = (error.cause as { status?: number } | undefined)?.status;
+    const providerStatus = statusOf(error.cause);
     // Metadata only: provider messages could echo user content
     this.logger.warn({ event: 'llm_error', type: error.name, statusCode: body.statusCode, providerStatus });
     host.switchToHttp().getResponse().status(body.statusCode).json(body);

@@ -1,17 +1,24 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import { getRetryable } from '@langchain/core/errors';
 import { AIMessage, type BaseMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { tool } from '@langchain/core/tools';
 import { LlmInvalidResponseError } from './llm.errors.js';
 import type { ChatMessage, ChatModel, ChatRequest, ChatResult, ToolCall, ToolDefinition } from './llm.ports.js';
-import { RETRYABLE_STATUSES, statusOf, toLlmError } from './provider-error.js';
+import { isRetryableStatus, statusOf, toLlmError } from './provider-error.js';
 
 type InvokeOptions = { signal?: AbortSignal };
+
+// How the library asks the provider for JSON: native JSON-schema output, or a forced function call
+export type StructuredMethod = 'jsonSchema' | 'functionCalling';
 type Invokable<T> = { invoke(messages: BaseMessage[], options?: InvokeOptions): Promise<T> };
 
 // The slice of a LangChain chat model that this adapter uses
 export interface LangChainChat extends Invokable<AIMessage> {
   bindTools(tools: ReturnType<typeof tool>[]): Invokable<AIMessage>;
-  withStructuredOutput(schema: object, config: { includeRaw: true }): Invokable<{ raw: AIMessage; parsed: unknown }>;
+  withStructuredOutput(
+    schema: object,
+    config: { includeRaw: true; method?: StructuredMethod },
+  ): Invokable<{ raw: AIMessage; parsed: unknown }>;
 }
 
 export interface ChatModelOptions {
@@ -88,6 +95,8 @@ export class LangChainChatModel implements ChatModel {
     readonly model: string,
     private readonly create: ChatModelFactory,
     private readonly policy: RetryPolicy = DEFAULT_RETRY_POLICY,
+    // Left to the library when undefined; Gemini needs jsonSchema to send the same request as before
+    private readonly structuredMethod?: StructuredMethod,
   ) {}
 
   async generate(request: ChatRequest): Promise<ChatResult> {
@@ -100,7 +109,10 @@ export class LangChainChatModel implements ChatModel {
     }
 
     if (request.responseSchema) {
-      const structured = model.withStructuredOutput(request.responseSchema, { includeRaw: true });
+      const structured = model.withStructuredOutput(request.responseSchema, {
+        includeRaw: true,
+        ...(this.structuredMethod ? { method: this.structuredMethod } : {}),
+      });
       const { raw, parsed } = await this.withRetries(request, (signal) => structured.invoke(messages, { signal }));
       // A reply that did not parse comes back as null: it must not become an answer
       if (parsed === null || parsed === undefined) throw new LlmInvalidResponseError(INVALID_REPLY);
@@ -108,7 +120,8 @@ export class LangChainChatModel implements ChatModel {
       return {
         text,
         toolCalls: [],
-        assistantMessage: { role: 'assistant', content: text, toolCalls: [], providerMessage: raw },
+        // The raw message is not kept: with function calling it holds a tool call that nothing answers
+        assistantMessage: { role: 'assistant', content: text, toolCalls: [] },
         ...tokensOf(raw),
       };
     }
@@ -125,8 +138,10 @@ export class LangChainChatModel implements ChatModel {
         return await run(signal);
       } catch (error) {
         const status = statusOf(error);
-        // No status means a network failure or a timeout, which can be transient
-        const retryable = !request.signal?.aborted && (status === undefined || RETRYABLE_STATUSES.has(status));
+        // No status means a network failure or a timeout, which can be transient, unless the library
+        // already knows the error is permanent (a blocked prompt, a bad key, a context overflow)
+        const transient = status === undefined ? getRetryable(error) !== false : isRetryableStatus(status);
+        const retryable = !request.signal?.aborted && transient;
         if (!retryable || attempt >= this.policy.maxAttempts) throw toLlmError(error);
         await this.policy.delay(attempt);
       }

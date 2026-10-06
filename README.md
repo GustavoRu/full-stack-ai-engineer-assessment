@@ -146,7 +146,9 @@ Chat goes through LangChain: one adapter, `LangChainChatModel`, serves the three
 providers behind our own `ChatModel` port, so nothing outside `src/llm` knows
 LangChain. The adapter owns retries (3 attempts, 30 seconds each), the per-attempt
 timeout, the cancellation signal and the mapping of provider errors, so every
-provider behaves the same. Adding a provider is one case in `src/llm/llm.module.ts`.
+provider behaves the same. Adding a provider is one case in each of `createChat` and
+`createEmbedding` in `src/llm/llm.module.ts`, plus its value in the provider enum, its
+key and model settings, and a key rule in `src/config/env.ts`.
 
 Chat and embeddings are two ports because the swaps are not equivalent. Changing
 the chat model is free. Changing the embedding model means re-embedding every
@@ -162,6 +164,13 @@ aborts at once. The cost is that it is a 0.x release whose API may change.
 
 `LLM_TEMPERATURE` defaults to 0.2. Leave it empty to send none: models that reason
 reject a temperature other than their own.
+
+Gemini is asked for native JSON-schema output, which is the request the project sent
+before LangChain. LangChain's default for Gemini is a forced function call instead:
+I measured that it adds about 100 input tokens per question, and it would contradict
+the statement that the model has no tools. Also, LangChain reads tracing settings from
+the environment: if `LANGSMITH_TRACING` or `LANGCHAIN_TRACING_V2` is set, prompts,
+which include document passages and questions, are sent to LangSmith. Leave them unset.
 
 ### Prompt versioning
 

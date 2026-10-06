@@ -1,6 +1,7 @@
 import { LlmRateLimitError, LlmUnavailableError } from './llm.errors.js';
 
-export const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([429, 500, 502, 503, 504]);
+// Matches what the provider SDKs retry themselves, which includes Anthropic's 529 overloaded
+export const isRetryableStatus = (status: number) => status === 408 || status === 429 || status >= 500;
 
 // The providers expose the HTTP status in different places: status, statusCode or response.status
 export function statusOf(error: unknown): number | undefined {

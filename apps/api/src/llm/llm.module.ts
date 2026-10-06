@@ -48,7 +48,8 @@ function createChat(config: ConfigService<Env, true>): ChatModel {
             ...temperatureOf(options),
           }),
         );
-      return new LangChainChatModel('gemini', model, create);
+      // JSON-schema output, not the function call LangChain would use by default
+      return new LangChainChatModel('gemini', model, create, undefined, 'jsonSchema');
     }
     case 'openai': {
       const model = get('OPENAI_CHAT_MODEL');
