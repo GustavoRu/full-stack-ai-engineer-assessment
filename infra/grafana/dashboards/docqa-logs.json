@@ -1,0 +1,147 @@
+{
+  "uid": "docqa-logs",
+  "title": "Backend logs",
+  "tags": [
+    "docqa"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "API logs",
+      "description": "Every line the API writes: requests, questions, uploads and errors. It refreshes every 5 seconds; for a continuous stream open Explore and press Live",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "docqa-loki"
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"api\"} | json | line_format `{{ .level }} [{{ .context }}] {{ if eq .message_event \"http_request\" }}{{ .message_method }} {{ .message_path }} -> {{ .message_status }} ({{ .message_durationMs }} ms){{ else if .message_event }}{{ .message_event }}{{ if .message_status }} {{ .message_status }}{{ end }}{{ if .message_latencyMs }} ({{ .message_latencyMs }} ms){{ end }}{{ else }}{{ .message }}{{ end }}`",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Requests per minute by status",
+      "description": "Health checks are not logged. Status 2xx is success, 4xx a client error and 5xx a server error",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "docqa-loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (message_status) (count_over_time({service=\"api\"} | json | message_event=\"http_request\" [1m]))",
+          "legendFormat": "{{message_status}}",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Average request time",
+      "description": "Includes the wait for the model, so a question takes seconds with the real provider",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "docqa-loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(avg_over_time({service=\"api\"} | json | message_event=\"http_request\" | unwrap message_durationMs [1m]))",
+          "legendFormat": "avg ms",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Warnings and errors",
+      "description": "Failed model calls, provider errors, unexpected exceptions and server errors",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "docqa-loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"api\"} | json | level=~\"warn|error|fatal\" | line_format `{{ .level }} [{{ .context }}] {{ if eq .message_event \"http_request\" }}{{ .message_method }} {{ .message_path }} -> {{ .message_status }} ({{ .message_durationMs }} ms){{ else if .message_event }}{{ .message_event }}{{ if .message_status }} {{ .message_status }}{{ end }}{{ if .message_latencyMs }} ({{ .message_latencyMs }} ms){{ end }}{{ else }}{{ .message }}{{ end }}`",
+          "queryType": "range"
+        }
+      ]
+    }
+  ]
+}

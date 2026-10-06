@@ -309,7 +309,9 @@ ID, document ID, model, prompt version, token counts, latency and status. The
 events are `question_answered`, `question_failed`, `document_ingested`,
 `document_ingest_failed`, `llm_error` (a provider failure, with its status code
 only), `unhandled_error` (an unexpected exception: its type, database error code
-and first stack frames) and `demo_user_created`. Document text, questions, answers and keys are never
+and first stack frames), `demo_user_created` and `http_request` (method, path,
+status, duration and user ID of every request except health checks, never the
+query string, headers or body). Document text, questions, answers and keys are never
 logged, and tests assert it. Unexpected errors are logged without their message,
 because the message of a failed database query contains its parameters.
 
@@ -324,12 +326,12 @@ There are three kinds of data and each has one home:
 
 | Data | Local | AWS |
 |---|---|---|
-| Event logs | Container output (`docker compose logs api`) | CloudWatch Logs, shipped by ECS |
+| Event logs | Container output (`docker compose logs -f api`), and Loki when the observability profile is on | CloudWatch Logs, shipped by ECS |
 | Audit records | `questions` table | The same table in RDS |
 | Metrics | Queries on the audit table | CloudWatch metric filters on the logs |
 
-Grafana is the visualization layer and stores nothing itself. Locally, an
-optional profile starts it with a dashboard already loaded:
+Grafana is the visualization layer and stores no data itself. Locally, an optional
+profile starts it with two dashboards already loaded:
 
 ```bash
 docker compose --profile observability up -d
@@ -343,6 +345,20 @@ role, `grafana_reader`, created by a one-shot container of the same profile. The
 role can read only the metric columns of `questions`: not user data, not the
 question or answer text, and it cannot write. Connecting as the database owner
 would let anyone who opens the dashboard run arbitrary SQL.
+
+**Backend logs** is the second dashboard. It shows what the API is doing: one line
+per request and per event (`POST /api/documents/<id>/questions -> 201 (7 ms)`,
+`question_answered`, `document_ingested`), requests per minute by status, average
+request time, and a panel with only warnings and errors. It refreshes every 5
+seconds, so a request made in the app shows up within moments. For a continuous
+stream, open Explore, pick the *DocQA Logs* source, run `{service="api"}` and press
+Live. Each entry expands to its full JSON.
+
+The pieces are two more containers of the profile. Grafana Alloy reads the `api`
+and `web` container logs from Docker and sends them to Loki, which keeps them on
+a volume for a week. Alloy reads them through the Docker socket, which gives it
+access to the Docker daemon, so this setup is for local use only. On AWS the logs
+already go to CloudWatch Logs, which Grafana can read directly.
 
 On AWS the same dashboard would run on Amazon Managed Grafana with two data
 sources, CloudWatch and PostgreSQL. The Terraform creates the log groups, three

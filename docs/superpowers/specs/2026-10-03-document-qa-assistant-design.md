@@ -35,7 +35,8 @@ Success criteria:
 - Next.js frontend with login, document list and upload, and a Q&A page.
 - Docker for database, API and frontend.
 - Terraform for AWS, written and validated, never applied.
-- An optional Grafana dashboard over the audit table, behind a Compose profile.
+- Optional Grafana dashboards over the audit table and the live backend logs (Loki),
+  behind a Compose profile.
 - A demo account created at startup from environment variables, for local use.
 - README with architecture, AI design, trade-offs, run instructions, and a cost
   table for 1k, 10k and 100k requests.
@@ -358,7 +359,8 @@ are `question_answered`, `question_failed`, `document_ingested` and
 logged.
 
 Logs are JSON, one object per line, so CloudWatch metric filters and Grafana can
-select by field.
+select by field. The `http_request` event records the method, path, status,
+duration and user ID of each request, never the query string, headers or body.
 
 Unexpected errors are logged without their message, because the message of a
 failed query carries its bound parameters. The log line keeps the error type,
