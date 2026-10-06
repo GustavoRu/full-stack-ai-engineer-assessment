@@ -1,3 +1,4 @@
+import { escapeDelimiters } from './escape.js';
 import type { PromptSource, PromptTemplate } from './prompt.types.js';
 
 // Published versions are never edited. To change the prompt, add qa-v2.ts and register it
@@ -22,9 +23,6 @@ const RESPONSE_SCHEMA = {
   },
   required: ['answerable', 'answer', 'citations'],
 };
-
-// Stops document or question text from closing its own delimiter
-const escapeDelimiters = (text: string) => text.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 const sourceBlock = (source: PromptSource) =>
   `<source id="${source.number}">\n${escapeDelimiters(source.content)}\n</source>`;
