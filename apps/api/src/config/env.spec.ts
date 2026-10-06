@@ -45,6 +45,21 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...base, TRUST_PROXY_HOPS: '-1' })).toThrow(/TRUST_PROXY_HOPS/);
   });
 
+  it('accepts a demo user only when both values are set and the password is long enough', () => {
+    expect(validateEnv(base).DEMO_USER_EMAIL).toBeUndefined();
+    expect(validateEnv({ ...base, DEMO_USER_EMAIL: '', DEMO_USER_PASSWORD: '' }).DEMO_USER_EMAIL).toBeUndefined();
+
+    const demo = validateEnv({ ...base, DEMO_USER_EMAIL: 'test@test.com', DEMO_USER_PASSWORD: 'test-password' });
+    expect(demo.DEMO_USER_EMAIL).toBe('test@test.com');
+    expect(demo.DEMO_USER_PASSWORD).toBe('test-password');
+
+    expect(() => validateEnv({ ...base, DEMO_USER_EMAIL: 'test@test.com' })).toThrow(/DEMO_USER_PASSWORD/);
+    expect(() => validateEnv({ ...base, DEMO_USER_PASSWORD: 'test-password' })).toThrow(/DEMO_USER_PASSWORD/);
+    expect(() => validateEnv({ ...base, DEMO_USER_EMAIL: 'test@test.com', DEMO_USER_PASSWORD: 'short' })).toThrow(
+      /DEMO_USER_PASSWORD/,
+    );
+  });
+
   it('rejects an unknown provider', () => {
     expect(() => validateEnv({ ...base, LLM_PROVIDER: 'openai' })).toThrow(/LLM_PROVIDER/);
   });

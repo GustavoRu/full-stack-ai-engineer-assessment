@@ -8,6 +8,10 @@ const flag = (fallback: 'true' | 'false') =>
     .default(fallback)
     .transform((value) => value === 'true');
 
+// A blank value in a .env file means "not set"
+const optional = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema.optional());
+
 const envSchema = z
   .object({
     PORT: positiveInt(3001),
@@ -26,6 +30,10 @@ const envSchema = z
     JWT_SECRET: z.string().min(32),
     JWT_EXPIRES_IN_SECONDS: positiveInt(3600),
 
+    // A known account created at startup so the app can be tried without registering; local use only
+    DEMO_USER_EMAIL: optional(z.email().max(254)),
+    DEMO_USER_PASSWORD: optional(z.string().min(8).max(128)),
+
     LLM_PROVIDER: z.enum(['gemini', 'mock']).default('gemini'),
     GEMINI_API_KEY: z.string().optional(),
     GEMINI_CHAT_MODEL: z.string().default('gemini-3.1-flash-lite'),
@@ -41,6 +49,10 @@ const envSchema = z
   .refine((env) => env.LLM_PROVIDER !== 'gemini' || !!env.GEMINI_API_KEY, {
     message: 'GEMINI_API_KEY is required when LLM_PROVIDER is gemini',
     path: ['GEMINI_API_KEY'],
+  })
+  .refine((env) => !!env.DEMO_USER_EMAIL === !!env.DEMO_USER_PASSWORD, {
+    message: 'DEMO_USER_EMAIL and DEMO_USER_PASSWORD must be set together',
+    path: ['DEMO_USER_PASSWORD'],
   });
 
 export type Env = z.infer<typeof envSchema>;

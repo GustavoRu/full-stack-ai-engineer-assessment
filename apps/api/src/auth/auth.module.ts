@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import type { Env } from '../config/env.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
+import { DemoUserSeeder } from './demo-user.seeder.js';
 import { UsersRepository } from './users.repository.js';
 
 @Module({
@@ -19,6 +20,6 @@ import { UsersRepository } from './users.repository.js';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, UsersRepository],
+  providers: [AuthService, UsersRepository, DemoUserSeeder],
 })
 export class AuthModule {}
