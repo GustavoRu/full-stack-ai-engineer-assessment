@@ -161,6 +161,30 @@ describe('QuestionsService.ask', () => {
     expect(JSON.stringify(entry)).not.toContain('secret');
   });
 
+  it('logs an answered question with its metadata and without the question, the answer or the passages', async () => {
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const { service } = setup({
+      chatText: JSON.stringify({ answerable: true, answer: 'The secret answer.', citations: [1] }),
+    });
+    await service.ask('user-1', 'doc-1', 'A very secret question?');
+
+    const entry = log.mock.calls[0]?.[0];
+    log.mockRestore();
+    expect(entry).toMatchObject({
+      event: 'question_answered',
+      userId: 'user-1',
+      documentId: 'doc-1',
+      questionId: 'q-1',
+      provider: 'test-provider',
+      model: 'test-chat',
+      promptVersion: 'qa-v1',
+      status: 'answered',
+      inputTokens: 100,
+      outputTokens: 20,
+    });
+    expect(JSON.stringify(entry)).not.toMatch(/secret|Paris/i);
+  });
+
   it('rejects blank and oversized questions', async () => {
     const { service, generate } = setup();
     await expect(service.ask('user-1', 'doc-1', '   ')).rejects.toThrow(BadRequestException);
