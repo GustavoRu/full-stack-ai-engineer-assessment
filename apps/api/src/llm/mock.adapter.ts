@@ -1,6 +1,6 @@
 import { EMBEDDING_DIMENSIONS } from '../database/schema.js';
 import { textResult } from './chat-result.js';
-import type { ChatModel, ChatRequest, ChatResult, EmbeddingModel } from './llm.ports.js';
+import type { ChatModel, ChatRequest, ChatResult, EmbeddingModel, ToolCall } from './llm.ports.js';
 
 const tokenize = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 
@@ -44,6 +44,38 @@ export class MockEmbeddingModel implements EmbeddingModel {
 
 const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 
+const questionOf = (request: ChatRequest) => {
+  const first = request.messages.find((message) => message.role === 'user')?.content ?? '';
+  return first.match(/<question>\n?([\s\S]*?)\n?<\/question>/)?.[1] ?? first;
+};
+
+// What a model that read the passages would submit: quote the first one and cite it
+function submitCall(lastToolResult: string): ToolCall {
+  const first = lastToolResult.match(/<source id="(\d+)">\n?([\s\S]*?)\n?<\/source>/);
+  const args = first
+    ? { answerable: true, answer: `[mock] ${first[2].slice(0, 200)}`, citations: [Number(first[1])] }
+    : { answerable: false, answer: '[mock] No passages were found.', citations: [] };
+  return { id: 'mock-call-2', name: 'submit_answer', args };
+}
+
+// Searches once with the question as the query, then submits
+function withTools(request: ChatRequest): ChatResult {
+  const lastToolResult = request.messages.filter((message) => message.role === 'tool').at(-1);
+  const canSearch = request.tools?.some((tool) => tool.name === 'search_document') ?? false;
+  const call: ToolCall =
+    lastToolResult === undefined && canSearch
+      ? { id: 'mock-call-1', name: 'search_document', args: { query: questionOf(request) } }
+      : submitCall(lastToolResult?.content ?? '');
+  const toolCalls = [call];
+  return {
+    text: '',
+    toolCalls,
+    assistantMessage: { role: 'assistant', content: '', toolCalls },
+    inputTokens: estimateTokens(request.system + request.messages.map((message) => message.content).join('')),
+    outputTokens: estimateTokens(JSON.stringify(call.args)),
+  };
+}
+
 const lastUserMessage = (request: ChatRequest) =>
   [...request.messages].reverse().find((message) => message.role === 'user')?.content ?? '';
 
@@ -53,6 +85,7 @@ export class MockChatModel implements ChatModel {
   readonly model = 'mock-chat';
 
   async generate(request: ChatRequest): Promise<ChatResult> {
+    if (request.tools?.length) return withTools(request);
     const user = lastUserMessage(request);
     const firstSource = user.match(/<source id="1">\n?([\s\S]*?)\n?<\/source>/)?.[1] ?? '';
     const answerable = firstSource.length > 0;
