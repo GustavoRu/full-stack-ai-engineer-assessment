@@ -178,10 +178,11 @@ exact: it only scans one document's chunks, so it needs no vector index.
 | Retrieved chunks | 5 | `RETRIEVAL_TOP_K` |
 | Output tokens | 800 | `MAX_OUTPUT_TOKENS` |
 
-Requests are limited per user: 10 questions and 5 uploads per minute. The
-defaults are sized for the Gemini free tier: embedding quota is counted per text,
-so a 50,000-character document (about 60 chunks, never more than 92) uses most
-of the 100 embedding requests allowed per minute.
+Requests are limited per user: 10 questions and 5 uploads per minute. This keeps
+one user from spending the provider quota alone. It is not derived from a known
+quota: Gemini quotas depend on the project and the tier, and are only shown in
+Google AI Studio. Embedding quota is counted per text, so a 50,000-character
+document (about 60 chunks, never more than 92) sends that many texts in one upload.
 
 ## Frontend
 
@@ -236,8 +237,8 @@ What I simplified, and why:
 
 Prices are the list prices of `gemini-3.1-flash-lite`: 0.25 USD per million
 input tokens and 1.50 USD per million output tokens. A request is one question:
-one query embedding and one chat call. The query embedding costs less than
-0.00001 USD and is left out.
+one query embedding and one chat call. The query embedding costs at most about
+0.00005 USD (a 1,000-character question) and is left out.
 
 | Scenario | Input tokens | Output tokens | 1k requests | 10k requests | 100k requests |
 |---|---|---|---|---|---|
@@ -251,8 +252,10 @@ does not grow with the document. The worst case is the ceiling set by
 `MAX_QUESTION_CHARS`, `RETRIEVAL_TOP_K` and `MAX_OUTPUT_TOKENS`.
 
 Ingestion is a one-time cost per document. A document at the 50,000-character
-limit is about 15,000 embedding tokens, which is 0.003 USD at 0.20 USD per
-million tokens (the embedding price currently listed).
+limit is about 15,000 embedding tokens, which is about 0.003 USD at 0.20 USD per
+million tokens. That is the price listed for Gemini Embedding 2: the model the app
+uses, `gemini-embedding-001`, is not on the pricing page, so treat it as an
+estimate. The cost is small either way.
 
 Infrastructure is the larger cost at low volume: the load balancer, the NAT
 gateway, two small Fargate tasks and the smallest RDS instance run all month
@@ -303,8 +306,10 @@ TLS).
 
 **Logging.** Logs are JSON, one object per line, and carry metadata only: user
 ID, document ID, model, prompt version, token counts, latency and status. The
-events are `question_answered`, `question_failed`, `document_ingested` and
-`document_ingest_failed`. Document text, questions, answers and keys are never
+events are `question_answered`, `question_failed`, `document_ingested`,
+`document_ingest_failed`, `llm_error` (a provider failure, with its status code
+only), `unhandled_error` (an unexpected exception: its type, database error code
+and first stack frames) and `demo_user_created`. Document text, questions, answers and keys are never
 logged, and tests assert it. Unexpected errors are logged without their message,
 because the message of a failed database query contains its parameters.
 
@@ -331,12 +336,20 @@ docker compose --profile observability up -d
 # http://localhost:3002
 ```
 
-The dashboard reads the audit table (the cost panel counts Gemini questions only): questions per hour, answers by status,
-latency p50 and p95, tokens, estimated cost, and a comparison by model and prompt
-version. On AWS the same dashboard would run on Amazon Managed Grafana with two
-data sources, CloudWatch and PostgreSQL. The Terraform creates the log groups,
-three metric filters and a failure alarm; it does not create the Grafana
-workspace, which needs an identity provider.
+The dashboard reads the audit table (the cost panel counts Gemini questions only):
+questions per hour, answers by status, latency p50 and p95, tokens, estimated cost,
+and a comparison by model and prompt version. Grafana connects with a read-only
+role, `grafana_reader`, created by a one-shot container of the same profile. The
+role can read only the metric columns of `questions`: not user data, not the
+question or answer text, and it cannot write. Connecting as the database owner
+would let anyone who opens the dashboard run arbitrary SQL.
+
+On AWS the same dashboard would run on Amazon Managed Grafana with two data
+sources, CloudWatch and PostgreSQL. The Terraform creates the log groups, three
+metric filters and a failure alarm that publishes to an SNS topic, which emails
+the address in the `alert_email` variable (a placeholder by default). SMS, a chat
+channel or an on-call tool can subscribe to the same topic. It does not create
+the Grafana workspace, which needs an identity provider.
 
 ## Evaluation and reliability
 
@@ -401,6 +414,10 @@ would need either an EventBridge rule on the rotation event that triggers a new
 deployment, or an API that reads the password from Secrets Manager when it opens
 a connection. Neither is built.
 
+**Network.** Tasks and the database sit in private subnets and the only public
+entry is the load balancer. Each service has its own security group: the frontend
+accepts traffic only from the balancer, and only the API can reach the database.
+
 **Config versus code.** Provider, model names, prompt version and limits are
 environment variables fed from Terraform variables. The same image runs in every
 environment. The one exception is the frontend's API address, which Next.js
@@ -415,8 +432,11 @@ inlines at build time: the production image is built with
   help once the quota is reached; the answer there is a queue with backpressure
   and a clear "try again" to the user, which the API already returns as a 429.
 - Requests are long. A question took about 10 seconds on average in my
-  measurements, and up to about 96 seconds with retries, so the load balancer's
-  idle timeout is 120 seconds.
+  measurements. The API answers only when the model has, so the connection stays
+  silent until then, and the load balancer closes a connection that stays silent
+  longer than its idle timeout (60 seconds by default). A question makes two
+  provider calls in a row, each up to about 96 seconds with retries, so the
+  timeout is 240 seconds.
 - Cost follows tokens, not requests, so budgets must be counted in tokens.
 
 ## Trade-offs and known limitations
@@ -441,9 +461,7 @@ Known limitations:
   incomplete answer with a valid citation. Sending neighbouring chunks is the
   first improvement I would make.
 - **Free tier.** Gemini quotas are per project and only shown in Google AI
-  Studio, so check yours. I sized the defaults for roughly 15 chat requests per
-  minute, 500 per day and 100 embedding requests per minute: figures from design
-  time that I could not confirm on Google's public pages. When a quota runs out
+  Studio, so check yours; I did not confirm any figures. When a quota runs out
   the API answers 429 and the UI asks to try again. Content sent may be used to
   improve Google's products.
 - **Documents.** Text-based PDFs only. Tables and multi-column layouts extract

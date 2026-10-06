@@ -48,6 +48,19 @@ resource "aws_cloudwatch_log_metric_filter" "output_tokens" {
   }
 }
 
+# Alarms publish to a topic, and subscribers decide where it goes: email here,
+# but SMS, a chat channel or an on-call tool can subscribe to the same topic
+resource "aws_sns_topic" "alerts" {
+  name = "${var.project}-alerts"
+}
+
+# The recipient must confirm the subscription from the email AWS sends
+resource "aws_sns_topic_subscription" "alerts_email" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
 resource "aws_cloudwatch_metric_alarm" "question_failures" {
   alarm_name          = "${var.project}-question-failures"
   alarm_description   = "More than 5 failed questions in 5 minutes: provider outage, quota or a bad prompt version"
@@ -59,4 +72,7 @@ resource "aws_cloudwatch_metric_alarm" "question_failures" {
   threshold           = 5
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
 }

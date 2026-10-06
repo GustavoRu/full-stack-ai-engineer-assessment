@@ -48,6 +48,36 @@ services:
       api:
         condition: service_healthy
 
+  # Optional, part of the observability profile: creates the read-only database role Grafana uses
+  grafana-db-init:
+    image: pgvector/pgvector:pg17
+    profiles: ["observability"]
+    restart: "no"
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-docqa}
+    command:
+      - psql
+      - -h
+      - db
+      - -U
+      - ${DB_USER:-docqa}
+      - -d
+      - ${DB_NAME:-docqa}
+      - -v
+      - ON_ERROR_STOP=1
+      - -v
+      - dbname=${DB_NAME:-docqa}
+      - -v
+      - reader_password=${GRAFANA_DB_PASSWORD:-grafana-reader}
+      - -f
+      - /readonly-role.sql
+    volumes:
+      - ./infra/grafana/readonly-role.sql:/readonly-role.sql:ro
+    depends_on:
+      # The API creates the tables when it starts
+      api:
+        condition: service_healthy
+
   # Optional: docker compose --profile observability up -d, then http://localhost:3002
   grafana:
     image: grafana/grafana:13.2.3
@@ -58,16 +88,15 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/docqa.json
       DB_NAME: ${DB_NAME:-docqa}
-      DB_USER: ${DB_USER:-docqa}
-      DB_PASSWORD: ${DB_PASSWORD:-docqa}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:-grafana-reader}
     ports:
       - "127.0.0.1:3002:3000"
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
-      db:
-        condition: service_healthy
+      grafana-db-init:
+        condition: service_completed_successfully
 
 volumes:
   db_data:
