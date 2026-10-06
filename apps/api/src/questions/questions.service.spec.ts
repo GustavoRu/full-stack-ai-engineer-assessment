@@ -223,6 +223,9 @@ describe('QuestionsService.history', () => {
       inputTokens: 100,
       outputTokens: 20,
       latencyMs: 250,
+      mode: 'classic',
+      searches: [],
+      modelCalls: 1,
       createdAt: new Date('2026-10-04T12:00:00Z'),
     } satisfies QuestionRow;
     repo.listByDocument.mockResolvedValue([row]);

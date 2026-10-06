@@ -110,6 +110,20 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...base, LLM_TEMPERATURE: 'hot' })).toThrow(/LLM_TEMPERATURE/);
   });
 
+  it('has the agentic settings with the documented defaults', () => {
+    const env = validateEnv(base);
+    expect(env.DEFAULT_ANSWER_MODE).toBe('classic');
+    expect(env.AGENT_PROMPT_VERSION).toBe('agent-v1');
+    expect(env.AGENT_MAX_SEARCHES).toBe(3);
+    expect(env.AGENT_TOP_K).toBe(3);
+
+    const custom = validateEnv({ ...base, DEFAULT_ANSWER_MODE: 'agentic', AGENT_MAX_SEARCHES: '2', AGENT_TOP_K: '4' });
+    expect(custom).toMatchObject({ DEFAULT_ANSWER_MODE: 'agentic', AGENT_MAX_SEARCHES: 2, AGENT_TOP_K: 4 });
+
+    expect(() => validateEnv({ ...base, DEFAULT_ANSWER_MODE: 'turbo' })).toThrow(/DEFAULT_ANSWER_MODE/);
+    expect(() => validateEnv({ ...base, AGENT_MAX_SEARCHES: '0' })).toThrow(/AGENT_MAX_SEARCHES/);
+  });
+
   it('rejects an unknown provider', () => {
     expect(() => validateEnv({ ...base, LLM_PROVIDER: 'cohere' })).toThrow(/LLM_PROVIDER/);
     expect(() => validateEnv({ ...base, EMBEDDING_PROVIDER: 'anthropic' })).toThrow(/EMBEDDING_PROVIDER/);

@@ -96,6 +96,9 @@ export class QuestionsService {
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
         latencyMs,
+        mode: 'classic',
+        searches: [],
+        modelCalls: 1,
       });
 
       this.logger.log({

@@ -6,6 +6,8 @@ export const EMBEDDING_DIMENSIONS = 768;
 export type SourceType = 'pdf' | 'text' | 'markdown' | 'pasted';
 export type AnswerStatus = 'answered' | 'unverified' | 'not_found';
 export type RetrievedRef = { chunkIndex: number; distance: number };
+export type AnswerMode = 'classic' | 'agentic';
+export type SearchRecord = { query: string; chunkIndexes: number[] };
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
@@ -71,6 +73,10 @@ export const questions = pgTable(
     inputTokens: integer('input_tokens').notNull(),
     outputTokens: integer('output_tokens').notNull(),
     latencyMs: integer('latency_ms').notNull(),
+    // Old rows read as classic answers with one model call
+    mode: text('mode').$type<AnswerMode>().notNull().default('classic'),
+    searches: jsonb('searches').$type<SearchRecord[]>().notNull().default([]),
+    modelCalls: integer('model_calls').notNull().default(1),
     createdAt: createdAt(),
   },
   (table) => [index('questions_document_id_idx').on(table.documentId)],
