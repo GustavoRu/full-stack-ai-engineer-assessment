@@ -80,6 +80,8 @@ apps/api/src/
 - Modify: `apps/api/src/questions/questions.service.ts`, `apps/api/src/documents/documents.service.ts`, `apps/api/src/common/llm-exception.filter.ts`, `apps/api/src/common/safe-exception.filter.ts` and their specs
 - Modify: `apps/api/Dockerfile`, `.env.example`
 - Create: `apps/api/test/proxy.int-spec.ts`
+- Create: `apps/api/src/auth/demo-user.seeder.ts`, `apps/api/src/auth/demo-user.seeder.spec.ts`
+- Modify: `apps/api/src/auth/auth.module.ts`
 
 **Interfaces:**
 - Consumes: `Env`, `configureApp`, the log call sites from Plan 1.
@@ -87,6 +89,7 @@ apps/api/src/
   - `DB_SSL` (boolean, default `false`) and `TRUST_PROXY_HOPS` (integer, default `0`) in `Env`.
   - Log calls that pass an object. With the JSON logger each line is `{ level, pid, timestamp, message: { event, ... }, context }`.
   - The RDS certificate bundle at `/app/certs/rds-global-bundle.pem` inside the API image.
+  - `DEMO_USER_EMAIL` and `DEMO_USER_PASSWORD` (both optional, set together or not at all): when set, the API creates that account at startup if it does not exist. They are in `.env.example` for local runs and are never set in Terraform.
 
 - [ ] **Step 1: Write the failing configuration tests**
 
@@ -314,7 +317,7 @@ grep question_answered /tmp/api-json.log | node -e 'const l=JSON.parse(require("
 grep -c "capital of France" /tmp/api-json.log
 ```
 
-Expected: 90 unit tests pass; lint and build are clean. The node line prints `object question_answered log QuestionsService`, and the grep count is `0`.
+Expected: all unit tests pass; lint and build are clean. The node line prints `object question_answered log QuestionsService`, and the grep count is `0`.
 
 If `message` is a string instead of an object, the metric filters of Task 2 must use `$.message` text matching; record that as a ruling and adjust the filter patterns there.
 
@@ -344,6 +347,200 @@ Expected: `{"status":"ok"}`, then `-----BEGIN CERTIFICATE-----` and `node`.
 (cd apps/api && pnpm test && pnpm test:int)
 git add apps/api .env.example
 git commit -m "feat(api): add JSON logs, database TLS and proxy-aware rate limits"
+```
+
+- [ ] **Step 14: Write the failing demo-user configuration test**
+
+In `apps/api/src/config/env.spec.ts`, add before the test `'rejects an unknown provider'`:
+
+```ts
+  it('accepts a demo user only when both values are set and the password is long enough', () => {
+    expect(validateEnv(base).DEMO_USER_EMAIL).toBeUndefined();
+    expect(validateEnv({ ...base, DEMO_USER_EMAIL: '', DEMO_USER_PASSWORD: '' }).DEMO_USER_EMAIL).toBeUndefined();
+
+    const demo = validateEnv({ ...base, DEMO_USER_EMAIL: 'test@test.com', DEMO_USER_PASSWORD: 'test-password' });
+    expect(demo.DEMO_USER_EMAIL).toBe('test@test.com');
+    expect(demo.DEMO_USER_PASSWORD).toBe('test-password');
+
+    expect(() => validateEnv({ ...base, DEMO_USER_EMAIL: 'test@test.com' })).toThrow(/DEMO_USER_PASSWORD/);
+    expect(() => validateEnv({ ...base, DEMO_USER_PASSWORD: 'test-password' })).toThrow(/DEMO_USER_PASSWORD/);
+    expect(() => validateEnv({ ...base, DEMO_USER_EMAIL: 'test@test.com', DEMO_USER_PASSWORD: 'short' })).toThrow(
+      /DEMO_USER_PASSWORD/,
+    );
+  });
+```
+
+Run: `pnpm test src/config`
+Expected: FAIL, because `DEMO_USER_EMAIL` is not in the schema.
+
+- [ ] **Step 15: Add the two settings to `apps/api/src/config/env.ts`**
+
+Add this helper above `envSchema`:
+
+```ts
+// A blank value in a .env file means "not set"
+const optional = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema.optional());
+```
+
+Add to the object, after `JWT_EXPIRES_IN_SECONDS`:
+
+```ts
+    // A known account created at startup so the app can be tried without registering; local use only
+    DEMO_USER_EMAIL: optional(z.email().max(254)),
+    DEMO_USER_PASSWORD: optional(z.string().min(8).max(128)),
+```
+
+Add a second refinement after the existing `.refine(...)`:
+
+```ts
+  .refine((env) => !!env.DEMO_USER_EMAIL === !!env.DEMO_USER_PASSWORD, {
+    message: 'DEMO_USER_EMAIL and DEMO_USER_PASSWORD must be set together',
+    path: ['DEMO_USER_PASSWORD'],
+  });
+```
+
+(Remove the `;` that ended the previous refinement.)
+
+Run: `pnpm test src/config`
+Expected: PASS, 8 tests.
+
+- [ ] **Step 16: Write the failing seeder test**
+
+Create `apps/api/src/auth/demo-user.seeder.spec.ts`:
+
+```ts
+import { ConflictException, Logger } from '@nestjs/common';
+import type { ConfigService } from '@nestjs/config';
+import type { Env } from '../config/env.js';
+import type { AuthService } from './auth.service.js';
+import { DemoUserSeeder } from './demo-user.seeder.js';
+
+function setup(env: Partial<Env>) {
+  const register = vi.fn().mockResolvedValue({ accessToken: 'token' });
+  const config = { get: (key: keyof Env) => env[key] } as unknown as ConfigService<Env, true>;
+  const seeder = new DemoUserSeeder(config, { register } as unknown as AuthService);
+  return { register, seeder };
+}
+
+const demo = { DEMO_USER_EMAIL: 'test@test.com', DEMO_USER_PASSWORD: 'test-password' };
+
+describe('DemoUserSeeder', () => {
+  it('creates the demo user when both values are set', async () => {
+    const { register, seeder } = setup(demo);
+    await seeder.onApplicationBootstrap();
+    expect(register).toHaveBeenCalledWith('test@test.com', 'test-password');
+  });
+
+  it('does nothing when no demo user is configured', async () => {
+    const { register, seeder } = setup({});
+    await seeder.onApplicationBootstrap();
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('leaves an existing demo user alone', async () => {
+    const { register, seeder } = setup(demo);
+    register.mockRejectedValueOnce(new ConflictException('Email already registered'));
+    await expect(seeder.onApplicationBootstrap()).resolves.toBeUndefined();
+  });
+
+  it('does not hide other failures', async () => {
+    const { register, seeder } = setup(demo);
+    register.mockRejectedValueOnce(new Error('connection lost'));
+    await expect(seeder.onApplicationBootstrap()).rejects.toThrow('connection lost');
+  });
+
+  it('logs the event without the address or the password', async () => {
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const { seeder } = setup(demo);
+    await seeder.onApplicationBootstrap();
+    const entry = JSON.stringify(log.mock.calls[0]?.[0]);
+    log.mockRestore();
+    expect(entry).toContain('demo_user_created');
+    expect(entry).not.toContain('test@test.com');
+    expect(entry).not.toContain('test-password');
+  });
+});
+```
+
+Run: `pnpm test src/auth/demo-user`
+Expected: FAIL, `Cannot find module './demo-user.seeder.js'`.
+
+- [ ] **Step 17: Implement the seeder and register it**
+
+Create `apps/api/src/auth/demo-user.seeder.ts`:
+
+```ts
+import { ConflictException, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../config/env.js';
+import { AuthService } from './auth.service.js';
+
+@Injectable()
+export class DemoUserSeeder implements OnApplicationBootstrap {
+  private readonly logger = new Logger(DemoUserSeeder.name);
+
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    private readonly auth: AuthService,
+  ) {}
+
+  async onApplicationBootstrap() {
+    const email = this.config.get('DEMO_USER_EMAIL', { infer: true });
+    const password = this.config.get('DEMO_USER_PASSWORD', { infer: true });
+    if (!email || !password) return;
+
+    try {
+      await this.auth.register(email, password);
+      this.logger.log({ event: 'demo_user_created' });
+    } catch (error) {
+      // It exists from an earlier start, or another instance created it a moment ago
+      if (!(error instanceof ConflictException)) throw error;
+    }
+  }
+}
+```
+
+In `apps/api/src/auth/auth.module.ts`, import it and change the providers line to:
+
+```ts
+  providers: [AuthService, UsersRepository, DemoUserSeeder],
+```
+
+Run: `pnpm test src/auth/demo-user`
+Expected: PASS, 5 tests.
+
+- [ ] **Step 18: Enable it for local runs and verify against the real stack**
+
+Append to `.env.example`, and to the local `.env` (which git ignores):
+
+```dotenv
+# Local demo account, created at startup so the app can be tried without registering.
+# Public credentials: leave both empty wherever other people can reach the API.
+DEMO_USER_EMAIL=test@test.com
+DEMO_USER_PASSWORD=test-password
+```
+
+Verify:
+
+```bash
+cd ../..
+docker compose up -d --build api
+curl -s --retry 20 --retry-all-errors --retry-delay 2 -o /dev/null localhost:3001/api/health
+curl -s -o /dev/null -w 'login %{http_code}\n' -X POST localhost:3001/api/auth/login -H 'Content-Type: application/json' -d '{"email":"test@test.com","password":"test-password"}'
+docker compose restart api
+curl -s --retry 20 --retry-all-errors --retry-delay 2 -o /dev/null localhost:3001/api/health
+docker compose exec -T db psql -U docqa -d docqa -tAc "SELECT count(*) FROM users WHERE email = 'test@test.com'"
+```
+
+Expected: `login 200`, and after the restart the user count is `1`: the second start neither fails nor creates a duplicate.
+
+- [ ] **Step 19: Commit**
+
+```bash
+(cd apps/api && pnpm lint && pnpm test)
+git add apps/api .env.example
+git commit -m "feat(api): create an optional demo user at startup for local runs"
 ```
 
 ---
@@ -1699,13 +1896,14 @@ docker compose -p docqa-clean up -d --build
 curl -s --retry 30 --retry-all-errors --retry-delay 2 localhost:3001/api/health; echo
 curl -s -o /dev/null -w 'web %{http_code}\n' localhost:3000/login
 API=localhost:3001/api; J='Content-Type: application/json'
+curl -s -o /dev/null -w 'demo login %{http_code}\n' -X POST $API/auth/login -H "$J" -d '{"email":"test@test.com","password":"test-password"}'
 TOKEN=$(curl -s -X POST $API/auth/register -H "$J" -d '{"email":"clone@example.com","password":"correct-horse"}' | sed 's/.*"accessToken":"\([^"]*\)".*/\1/')
 ID=$(curl -s -X POST $API/documents -H "Authorization: Bearer $TOKEN" -F 'file=@./docs/CHALLENGE.md' | sed 's/.*"id":"\([^"]*\)".*/\1/')
 curl -s -X POST $API/documents/$ID/questions -H "Authorization: Bearer $TOKEN" -H "$J" -d '{"question":"Which backend technologies are allowed?"}' | cut -c1-200; echo
 docker compose -p docqa-clean ps --format '{{.Service}} {{.Status}}'
 ```
 
-Expected: the clone is at the branch head; health is `{"status":"ok"}`; `web 200`; the question returns `"status":"answered"`; three services are up, with `db` and `api` healthy.
+Expected: the clone is at the branch head; health is `{"status":"ok"}`; `web 200`; `demo login 200`; the question returns `"status":"answered"`; three services are up, with `db` and `api` healthy.
 
 Also confirm nothing private was cloned:
 
@@ -1733,7 +1931,7 @@ Expected: `{"status":"ok"}` from the original stack, with its data intact.
 (cd apps/web && pnpm lint && pnpm typecheck && pnpm test)
 ```
 
-Expected: 90 unit and 8 integration tests in the API, 48 tests in the frontend, and clean lint and typecheck.
+Expected: all unit and integration tests in the API, 48 tests in the frontend, and clean lint and typecheck.
 
 - [ ] **Step 4: Final review and handoff**
 
