@@ -86,7 +86,7 @@ the frontend.
 | `auth` | Register, login, JWT guard |
 | `documents` | Upload, list, get, delete, and ingestion (extract, chunk, embed, store) |
 | `questions` | Ask a question (retrieve, build prompt, invoke, post-process, store) and history |
-| `llm` | `ChatModel` and `EmbeddingModel` ports, Gemini and mock adapters, factory by config |
+| `llm` | `ChatModel` and `EmbeddingModel` ports, one LangChain chat adapter for Gemini, OpenAI and Anthropic, embedding adapters for Gemini and OpenAI, mock adapters, factory by config |
 | `prompts` | Versioned prompt templates and a registry |
 | `health` | `GET /api/health` |
 
@@ -250,13 +250,14 @@ interface EmbeddingModel {
 ```
 
 - The ports are injection tokens. The `llm` module factory picks the adapter
-  from `LLM_PROVIDER` (`gemini` or `mock`). Selection is explicit, not inferred
-  from which API key is present.
-- **Gemini adapter** (`@google/genai`): 30-second request timeout, up to 2
-  retries with exponential backoff (1 s, then 2 s) on 429 and 5xx, JSON output
-  constrained by the schema. It
-  maps provider failures to domain errors: `LlmRateLimitError`,
-  `LlmUnavailableError`, `LlmInvalidResponseError`.
+  from `LLM_PROVIDER` and `EMBEDDING_PROVIDER`. Selection is explicit, not
+  inferred from which API key is present.
+- **LangChain chat adapter** (Gemini, OpenAI, Anthropic): up to 3 attempts of
+  30 seconds each, with exponential backoff (1-2 s, then 2-4 s) on 429 and 5xx
+  and on network failures, JSON output constrained by the schema. It maps
+  provider failures to domain errors: `LlmRateLimitError`,
+  `LlmUnavailableError`, `LlmInvalidResponseError`. Gemini embeddings still use
+  the native `@google/genai` client; OpenAI embeddings go through LangChain.
 - **Mock adapter**: deterministic and offline. Embeddings come from hashing
   words into the 768 dimensions, so similar text gets similar vectors. The chat
   model returns a valid JSON answer that quotes the first source. Used by tests
@@ -496,6 +497,10 @@ committed; `.env` is ignored by git.
 | `GEMINI_API_KEY` | none, required when the provider is `gemini` | Yes |
 | `GEMINI_CHAT_MODEL` | `gemini-3.1-flash-lite` | |
 | `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-001` | |
+| `EMBEDDING_PROVIDER` | the chat provider | |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | none | Yes |
+| `OPENAI_CHAT_MODEL`, `OPENAI_EMBEDDING_MODEL`, `ANTHROPIC_CHAT_MODEL` | `gpt-4o-mini`, `text-embedding-3-small`, `claude-haiku-4-5` | |
+| `LLM_TEMPERATURE` | `0.2` | |
 | `PROMPT_VERSION` | `qa-v1` | |
 | `MAX_UPLOAD_BYTES`, `MAX_DOCUMENT_CHARS`, `MAX_QUESTION_CHARS` | see 6.3 | |
 | `RETRIEVAL_TOP_K`, `MAX_OUTPUT_TOKENS` | see 6.3 | |
@@ -604,7 +609,7 @@ cost of *What we give up*.
 | Document Q&A | Summarize and classify; structured extraction | Covers submit, interact and structured output naturally | More to build: retrieval and a Q&A page. The other two are one model call per submission |
 | RAG with pgvector | Whole document in the prompt; a dedicated vector store | Bounded cost per question; same database as persistence; verifiable citations | Retrieval can miss the relevant chunk, which whole-document prompting never does. A dedicated store scales further |
 | All Node, no Python service | A Python ingestion service | The brief asks for Node or Java; chunking, embedding calls and SQL need nothing Python-specific; one runtime to deploy | Python has the richer AI ecosystem: OCR and layout-aware parsing, evaluation tooling, local models |
-| Own ports and adapters | LangChain | Shows the separation the brief asks for in our own code; small dependency surface | We write and maintain the chunker, retries and adapters. LangChain ships many providers and loaders ready-made |
+| Own ports, LangChain inside one chat adapter | LangChain throughout | The separation the brief asks for stays in our code, and one adapter serves three providers | A larger dependency surface; Gemini needs a 0.x package |
 | Gemini plus mock, chosen by `LLM_PROVIDER` | More provider adapters; auto-detection by API key | Both adapters are tested; explicit selection is unambiguous | One real provider is thin proof of the abstraction. Someone with only another provider's key must write an adapter |
 | NestJS | Express, Fastify | The framework the author uses daily; dependency injection fits ports | More boilerplate and indirection than a minimal framework for an app this small |
 | Drizzle | Prisma, TypeORM | Native pgvector types and helpers; SQL-like | No official NestJS module. Prisma and TypeORM are more common in existing NestJS projects |
@@ -645,8 +650,8 @@ cost of *What we give up*.
 
 1. Done: the quota counts one request per text, not per batch. A call with two
    texts counted as two requests.
-2. Done: verified against `@google/genai` 2.27. Generation uses
-   `models.generateContent` with `responseJsonSchema`; embeddings use
+2. Done: verified against `@google/genai` 2.27 (embeddings only since the
+   chat moved to LangChain). Embeddings use
    `models.embedContent` with an array of texts; retries use the SDK's own
    retry options.
 3. Done: `unpdf` returns blank text for a PDF with no text layer, and the

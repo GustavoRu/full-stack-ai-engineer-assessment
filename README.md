@@ -108,7 +108,7 @@ Docker Compose.
 | `auth` | Register, login, global JWT guard |
 | `documents` | Upload and ingestion: extract text, chunk, embed, store |
 | `questions` | The AI endpoint: retrieve, build prompt, invoke, post-process, store |
-| `llm` | Ports for the chat and embedding models, with Gemini and mock adapters |
+| `llm` | Ports for the chat and embedding models, one LangChain chat adapter for Gemini, OpenAI and Anthropic, and the offline mock |
 | `prompts` | Versioned prompt templates |
 | `database` | Drizzle schema and migrations |
 
@@ -131,14 +131,37 @@ were retrieved.
 
 ### Switching providers
 
-`LLM_PROVIDER` selects the adapter: `gemini` or `mock`. Adding a provider is one
-adapter file and one case in `src/llm/llm.module.ts`.
+`LLM_PROVIDER` selects the chat model and `EMBEDDING_PROVIDER` the embedding model.
+Both are plain settings: someone with an OpenAI or Anthropic key sets it in `.env`
+and restarts the API.
+
+| Provider | Chat | Embeddings | Status |
+|---|---|---|---|
+| `gemini` | `gemini-3.1-flash-lite` | `gemini-embedding-001` | Verified against the real API |
+| `openai` | `gpt-4o-mini` | `text-embedding-3-small` | Wired and unit-tested, **not verified**: I have no key |
+| `anthropic` | `claude-haiku-4-5` | none | Wired and unit-tested, **not verified**. Anthropic has no embedding model, so `EMBEDDING_PROVIDER` is required |
+| `mock` | offline fake answers | offline fake vectors | Verified, needs no key |
+
+Chat goes through LangChain: one adapter, `LangChainChatModel`, serves the three real
+providers behind our own `ChatModel` port, so nothing outside `src/llm` knows
+LangChain. The adapter owns retries (3 attempts, 30 seconds each), the per-attempt
+timeout, the cancellation signal and the mapping of provider errors, so every
+provider behaves the same. Adding a provider is one case in `src/llm/llm.module.ts`.
 
 Chat and embeddings are two ports because the swaps are not equivalent. Changing
 the chat model is free. Changing the embedding model means re-embedding every
 document, since vectors from different models are not comparable. Each document
 records the embedding model it was indexed with, and a question against a
-document indexed with a different model is refused with a clear error.
+document indexed with a different model is refused with a clear error. So when
+switching `EMBEDDING_PROVIDER`, upload the documents again.
+
+For Gemini I use `@langchain/google`, pinned to an exact version, instead of the
+older `@langchain/google-genai`. I measured that the older package ignores both a
+timeout and an abort signal, so a hung call could not be cut, and the newer one
+aborts at once. The cost is that it is a 0.x release whose API may change.
+
+`LLM_TEMPERATURE` defaults to 0.2. Leave it empty to send none: models that reason
+reject a temperature other than their own.
 
 ### Prompt versioning
 
@@ -465,7 +488,7 @@ The main ones:
 | Decision | What it costs |
 |---|---|
 | RAG with pgvector instead of sending the whole document | Retrieval can miss the relevant passage |
-| Own ports and adapters instead of LangChain | I maintain the chunker, retries and adapters |
+| Own ports, with LangChain inside one adapter | A larger dependency surface, and a 0.x package for Gemini |
 | Independent questions | No follow-up questions |
 | Status derived from citations | A valid citation shows the source was retrieved, not that the answer is faithful to it |
 | Token in `localStorage` | A script on the page could read it |
@@ -473,6 +496,10 @@ The main ones:
 
 Known limitations:
 
+- **Providers.** OpenAI and Anthropic are wired but not verified against their real
+  APIs, because I have no keys. How each handles structured output, and whether a
+  newer model accepts the parameters I send, is untested. Reasoning models may need
+  `LLM_TEMPERATURE` left empty.
 - **Answer completeness.** An idea split across two chunks can produce an
   incomplete answer with a valid citation. Sending neighbouring chunks is the
   first improvement I would make.

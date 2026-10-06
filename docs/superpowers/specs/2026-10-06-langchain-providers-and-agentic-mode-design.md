@@ -111,13 +111,14 @@ The embedding port does not change.
 
 ### 4.2 LangChain chat adapter
 
-One class, `LangChainChatModel`, takes a LangChain chat model, a provider name and a model
-name. Per call it:
+One class, `LangChainChatModel`, takes a provider name, a model name and a factory that
+builds the LangChain chat model for one request's temperature and output limit, because
+each provider names those options differently. It also owns the retry policy. Per call it:
 
 1. Converts our messages to LangChain messages. An assistant turn with `providerMessage` is passed back as that original LangChain message.
 2. With `responseSchema`: calls `withStructuredOutput(schema, { includeRaw: true })` and returns the parsed object as JSON text. With `tools`: calls `bindTools` and returns the tool calls.
 3. Reads token counts from `usage_metadata`.
-4. Applies a per-attempt timeout of 30 seconds and up to 2 retries, as today, plus the request's `signal`.
+4. Applies up to 3 attempts with a 30 second timeout each, plus the request's `signal`. LangChain's own retries are off, so attempts are not multiplied.
 5. Maps errors (section 4.5).
 
 The factory in `llm.module.ts` builds the LangChain model for the active provider. It is
