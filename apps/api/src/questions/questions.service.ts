@@ -52,8 +52,10 @@ export class QuestionsService {
     userId: string,
     documentId: string,
     rawQuestion: string,
-    mode: AnswerMode = this.defaultMode,
+    requestedMode?: AnswerMode | null,
   ): Promise<QuestionResponse> {
+    // A JSON null reaches here as null, which a default parameter would not replace
+    const mode = requestedMode ?? this.defaultMode;
     const question = removeNullBytes(rawQuestion).trim();
     if (question.length === 0) {
       throw new BadRequestException('The question is empty');

@@ -272,6 +272,41 @@ describe('runAgentLoop', () => {
     await expect(run(chat).outcome).rejects.toBeInstanceOf(LlmInvalidResponseError);
   });
 
+  it('makes the last call a submit-only, required one even when earlier turns wasted no search', async () => {
+    const unknown: ToolCall = { id: 'u1', name: 'nope', args: {} };
+    const { chat, seen } = scripted(
+      { calls: [unknown] },
+      { calls: [search('a')] },
+      { calls: [search('b')] },
+      { calls: [search('c')] },
+    );
+    const { outcome, searchFn, usage } = run(chat, { maxSearches: 3 });
+
+    await expect(outcome).rejects.toBeInstanceOf(LlmInvalidResponseError);
+
+    // A turn that used an unknown tool spent no search, but the budget of calls is still maxSearches + 1
+    expect(usage.modelCalls).toBe(4);
+    expect(seen[3].tools).toEqual(['submit_answer']);
+    expect(seen.map((call) => call.required)).toEqual([false, false, false, true]);
+    // The search asked for on the last turn is never run: its result could not reach the model
+    expect(searchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('checks the deadline before each search of a turn, not only before each model call', async () => {
+    const { chat } = scripted({ calls: [search('a', 'c1'), search('b', 'c2')] });
+    const slow = vi.fn(async (_query: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return [chunk(10)];
+    });
+    const { outcome } = run(chat, { search: slow, deadlineMs: 20 });
+
+    await expect(outcome).rejects.toMatchObject({
+      name: 'LlmUnavailableError',
+      message: expect.stringContaining('took too long'),
+    });
+    expect(slow).toHaveBeenCalledTimes(1);
+  });
+
   it('stops after the last allowed call when the model never answers', async () => {
     const unknown: ToolCall = { id: 'c1', name: 'nope', args: {} };
     const { chat } = scripted({ calls: [unknown] }, { calls: [unknown] }, { calls: [unknown] });

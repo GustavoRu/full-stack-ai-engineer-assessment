@@ -3,7 +3,7 @@
 - **Date:** 2026-10-06
 - **Status:** implemented (plans 4 and 5)
 - **Base design:** [2026-10-03-document-qa-assistant-design.md](2026-10-03-document-qa-assistant-design.md). This document only describes what changes; everything else stands.
-- **Branch:** `feat/langchain-tool-calling`
+- **Branches:** `feat/langchain-tool-calling` (plan 4) and `feat/agentic-mode` (plan 5)
 
 ## 1. Goal
 
@@ -42,7 +42,7 @@ The current behavior stays available and remains the default.
 | Embeddings | Keep the native Gemini adapter, add OpenAI through LangChain, configure the embedding provider apart from chat | Move Gemini embeddings to LangChain; tie embeddings to the chat provider | The Gemini adapter is verified with 768 dimensions and task types. Anthropic has no embedding model, so the two settings must be independent | Two settings instead of one |
 | Tool design | `search_document`: the model chooses the queries | Fixed retrieval plus a `read_neighbours` tool; both tools | The full tool loop, and the standard agentic retrieval pattern. Helps multi-part questions | Two to four model calls per question |
 | End of the loop | A `submit_answer` tool whose arguments are the answer | Provider JSON mode alongside tools | Works the same on every provider, and makes the end of the loop explicit | The model may reply in plain text instead; handled as `unverified` |
-| Loop implementation | Written by hand, about 60 lines | A LangChain or LangGraph prebuilt agent | Every step is explainable, and the caps and the audit record are ours | We maintain the loop |
+| Loop implementation | Written by hand, about 100 lines | A LangChain or LangGraph prebuilt agent | Every step is explainable, and the caps and the audit record are ours | We maintain the loop |
 | Mode selection | Per question, from the API and the UI; classic by default | One mode for the whole app, set in `.env` | The same question can be compared in both modes, live. The classic mode is cheaper and faster for most questions | Two code paths and a UI control |
 | Default models | `gpt-4o-mini` and `claude-haiku-4-5` | `gpt-5-nano`, `claude-opus-5-5` | Both accept the classic parameters (temperature, maximum output tokens) and do not reason by default, which matters for code that cannot be tested against them. Haiku follows the project rule of the smallest model that does the job | Not the newest models. Changing them is one variable |
 | Temperature | `LLM_TEMPERATURE`, default `0.2`; empty means it is not sent | A constant | Newer reasoning models reject non-default sampling values | One more setting |
@@ -300,7 +300,7 @@ From the throwaway probe on 2026-10-06, against real `gemini-3.1-flash-lite`:
 | Agentic, unanswerable question, 2 searches | 3 | 3,221 | 70 |
 
 Each call took between 4 and 62 seconds that night, and one failed with 503 ("high demand").
-The implementation re-measures both modes on the same 5 questions and the README cost table
+The implementation re-measures both modes on the same questions and the README cost table
 gains an agentic row.
 
 ## 12. Testing
@@ -358,7 +358,7 @@ If plan 5 is not finished by the delivery date, plan 4 is merged alone and `main
 
 - OpenAI and Anthropic are wired but not verified against their real APIs.
 - Reasoning models that reject sampling parameters need `LLM_TEMPERATURE` left empty. How each unverified provider handles structured output is not verified either.
-- The agentic mode costs 1.1 to 2.5 times the classic mode and its latency varies with provider load.
+- The agentic mode costs about 1.6 times the classic mode in the measurement and its latency varies with provider load.
 - There is no streaming of the agent's steps: the user sees the pending card until the answer arrives.
 - A question with more parts than `AGENT_MAX_SEARCHES` can be answered only in part.
 - `@langchain/google` is a 0.x package.

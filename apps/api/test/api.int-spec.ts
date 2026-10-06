@@ -163,12 +163,12 @@ describe('answer modes', () => {
   // Uploads are limited to 5 per minute per user, so this block has its own user and two shared documents
   let dave: string;
   let france: { id: string };
-  let germany: { id: string };
 
   beforeAll(async () => {
     dave = await signUp('dave');
     france = await upload(dave, 'Paris is the capital of France.');
-    germany = await upload(dave, 'Berlin is the capital of Germany.');
+    // The other document is what an unscoped search would wrongly find
+    await upload(dave, 'Berlin is the capital of Germany.');
   });
 
   const ask = (document: string, json: object, token = dave) =>
@@ -205,6 +205,12 @@ describe('answer modes', () => {
     }
   });
 
+  it('treats a null mode as no choice', async () => {
+    const reply = await ask(france.id, { question: 'Capital?', mode: null });
+    expect(reply.status).toBe(201);
+    expect(reply.body).toMatchObject({ mode: 'classic', modelCalls: 1 });
+  });
+
   it('answers 400 for an unknown mode', async () => {
     expect((await ask(france.id, { question: 'Capital?', mode: 'turbo' })).status).toBe(400);
   });
@@ -215,7 +221,9 @@ describe('answer modes', () => {
 
     expect(reply.status).toBe(201);
     expect(reply.body.answer).toBe('[mock] Paris is the capital of France.');
-    expect(germany.id).not.toBe(france.id);
+    // An unscoped search would return passages of both documents; this one found only its own
+    expect(reply.body.searches).toEqual([{ query: 'Is Berlin the capital of Germany?', sourceCount: 1 }]);
+    expect(reply.body.citations).toEqual([{ chunkIndex: 0, content: 'Paris is the capital of France.' }]);
   });
 
   it("hides another user's document from the agentic mode too", async () => {

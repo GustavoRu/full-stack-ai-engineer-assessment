@@ -55,6 +55,8 @@ export async function runAgentLoop(input: AgentInput, usage: AgentUsage): Promis
   let attempts = 0;
 
   async function runCall(call: ToolCall): Promise<string> {
+    // Several searches of one turn run one after another: the deadline applies to each
+    if (signal.aborted) throw new LlmUnavailableError(TOO_SLOW);
     if (call.name !== template.searchTool.name) {
       return `Unknown tool "${call.name}". Use ${template.searchTool.name} or ${template.submitTool.name}.`;
     }
@@ -87,10 +89,11 @@ export async function runAgentLoop(input: AgentInput, usage: AgentUsage): Promis
     return numbered.length === 0 ? 'No passages were found.' : template.formatPassages(numbered);
   }
 
-  // At most maxSearches + 1 model calls: each turn that does not end spends at least one search
+  // At most maxSearches + 1 model calls, whatever the model does: the last turn can only submit
   for (let turn = 0; turn <= input.maxSearches; turn++) {
     if (signal.aborted) throw new LlmUnavailableError(TOO_SLOW);
-    const canSearch = attempts < input.maxSearches;
+    const lastTurn = turn === input.maxSearches;
+    const canSearch = !lastTurn && attempts < input.maxSearches;
     const tools = canSearch ? [template.searchTool, template.submitTool] : [template.submitTool];
 
     let result: ChatResult;
@@ -126,10 +129,17 @@ export async function runAgentLoop(input: AgentInput, usage: AgentUsage): Promis
       return { parsed: parseAnswer(JSON.stringify(submission.args), passages), passages, searches };
     }
 
+    // Nothing could answer a tool call made on the last turn, so it is not run
+    if (lastTurn) {
+      if (signal.aborted) throw new LlmUnavailableError(TOO_SLOW);
+      throw new LlmInvalidResponseError(NO_ANSWER);
+    }
+
     for (const call of result.toolCalls) {
       messages.push({ role: 'tool', toolCallId: call.id, content: await runCall(call) });
     }
   }
 
+  // Unreachable: the last turn always returns or throws above
   throw new LlmInvalidResponseError(NO_ANSWER);
 }

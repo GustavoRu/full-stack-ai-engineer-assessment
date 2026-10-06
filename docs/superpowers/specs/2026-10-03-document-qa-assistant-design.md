@@ -652,7 +652,7 @@ cost of *What we give up*.
   was retrieved, not that the answer is complete or faithful to it.
 - An idea split across chunks can produce an incomplete answer. Sending
   neighbor chunks to the model is the first planned improvement.
-- The agentic mode costs more and is slower: two to four model calls per question.
+- The agentic mode costs more and is slower: one to four model calls per question.
   A question with more parts than the search limit is answered in part.
 - No refresh tokens; the session lasts one hour.
 - No PII redaction and no automatic data expiry.

@@ -85,7 +85,10 @@ Every answer is a structured object, not free text:
   "citations": [{ "chunkIndex": 4, "content": "The service contract can be terminated..." }],
   "usage": { "inputTokens": 1843, "outputTokens": 61 },
   "model": "gemini-3.1-flash-lite",
-  "promptVersion": "qa-v1"
+  "promptVersion": "qa-v1",
+  "mode": "classic",
+  "searches": [],
+  "modelCalls": 1
 }
 ```
 
@@ -127,7 +130,9 @@ invocation and response post-processing. Each one is its own unit:
 
 `QuestionsService.ask` runs them in order and stores an audit record with the
 prompt version, provider, model, token counts, latency and the passages that
-were retrieved.
+were retrieved. The agentic mode has the same three steps: the prompt in
+`src/prompts/agent-v1.ts`, the invocation through the loop in
+`src/questions/agent-loop.ts`, and the same `answer-parser.ts` after it.
 
 ### Switching providers
 
@@ -168,7 +173,7 @@ reject a temperature other than their own.
 Gemini is asked for native JSON-schema output, which is the request the project sent
 before LangChain. LangChain's default for Gemini is a forced function call instead:
 I measured that it adds about 100 input tokens per question, and it would contradict
-the statement that the model has no tools. Also, LangChain reads tracing settings from
+the statement that the classic mode gives the model no tools. Also, LangChain reads tracing settings from
 the environment: if `LANGSMITH_TRACING` or `LANGCHAIN_TRACING_V2` is set, prompts,
 which include document passages and questions, are sent to LangSmith. Leave them unset.
 
@@ -188,12 +193,14 @@ No single defense is complete, so there are four layers:
 2. **Least privilege.** In the classic mode the model has no tools and no data
    access. In the agentic mode it has one read-only tool, and the server scopes
    it: the model supplies only the text to search for, while the document and the
-   user come from the authenticated request, and the SQL filters by them. The
+   user come from the authenticated request: the document is loaded with a query that
+   filters by its id and by the signed-in user, and every later query, including each
+   search, is scoped to that document id. The
    number of searches and the time per question are capped. Either way, filtering
    by user and document happens in SQL, and the worst outcome of a successful
    injection is a bad answer about the user's own document.
 3. **Constrained output.** The response must match a JSON schema and is validated
-   again by the API.
+   again by the API. In the agentic mode a plain-text reply is kept, but as `unverified`.
 4. **Input limits.** Question length, document size and per-user rate limits.
 
 ### Retrieval
@@ -212,7 +219,7 @@ UI, the optional `mode` field in the API). The classic mode is the default.
 | | Classic | Agentic |
 |---|---|---|
 | Who decides what to search | The code: always the 5 nearest passages to the question | The model, through a `search_document` tool |
-| Model calls per question | 1 | 2 to 4 |
+| Model calls per question | 1 | 1 to `AGENT_MAX_SEARCHES` + 1 (4 by default) |
 | Prompt | `qa-v1` | `agent-v1` |
 | Good for | Most questions: cheaper and predictable | Questions with several parts, or a first search that misses |
 
@@ -241,12 +248,21 @@ for: ..."). They are never written to the logs, for the same reason questions ar
 | Question length | 1,000 characters | `MAX_QUESTION_CHARS` |
 | Retrieved chunks | 5 | `RETRIEVAL_TOP_K` |
 | Output tokens | 800 | `MAX_OUTPUT_TOKENS` |
+| Agentic searches per question | 3 | `AGENT_MAX_SEARCHES` |
+| Passages per agentic search | 3 | `AGENT_TOP_K` |
+| Time for the model calls of an agentic question | 120 seconds | fixed |
 
 Requests are limited per user: 10 questions and 5 uploads per minute. This keeps
 one user from spending the provider quota alone. It is not derived from a known
 quota: Gemini quotas depend on the project and the tier, and are only shown in
 Google AI Studio. Embedding quota is counted per text, so a 50,000-character
 document (about 60 chunks, never more than 92) sends that many texts in one upload.
+
+The limit counts questions, not calls, and an agentic question can make up to
+`AGENT_MAX_SEARCHES` + 1 chat calls and `AGENT_MAX_SEARCHES` embedding calls. So in the
+agentic mode the same 10 questions per minute bound the provider quota about four
+times more loosely. A lower limit for agentic questions, or a budget counted in
+tokens, would tighten it; neither is built.
 
 ## Frontend
 
@@ -255,7 +271,7 @@ list with upload, and the question page of one document.
 
 | Concern | How it is handled |
 |---|---|
-| Model status | A pending card shows the question and "Thinking" until the answer arrives |
+| Model status | A pending card shows the question and "Thinking" (or "Searching the document" in the agentic mode) until the answer arrives |
 | Uncertainty | Each answer carries a status badge; `unverified` adds a warning and `not_found` suggests rephrasing |
 | Sources | Each answer can expand the passages it cited |
 | Refine or re-ask | "Edit and ask again" copies a past question into the form |
@@ -264,7 +280,7 @@ list with upload, and the question page of one document.
 | Unsafe output | Model output is rendered as plain text, never as HTML or Markdown |
 
 There are no partial results: without streaming the answer arrives whole, so the
-UI shows "Thinking" until then.
+UI shows "Thinking", or "Searching the document", until then.
 
 The token is kept in `localStorage`, which is simple but readable by any script
 on the page. The production alternative is an `httpOnly` cookie.
@@ -286,14 +302,14 @@ What I simplified, and why:
 
 ## Bonus sections covered
 
-The brief lists optional bonus sections. This project covers four:
+The brief lists five optional bonus sections, and section 2.1 has one of its own. This project covers four of the six:
 
 - **Tool/function calling with the LLM:** the agentic answer mode.
 - **Cost estimation for 1k / 10k / 100k requests:** the table in "Cost and rate limits", measured against the real provider.
-- **A vector store with retrieval-augmented generation:** pgvector in the same PostgreSQL, with exact search per document.
-- **Per-user data isolation:** every query filters by user and document in SQL, and the integration tests check it on every route, including the agentic mode.
+- **Multi-tenant prompt or data isolation:** data isolation per user. Every request first loads the document with a query that filters by its id and the signed-in user (404 otherwise), every later query, including each agentic search, is scoped to that document, and the integration tests check it on every route. Prompts are shared, not per tenant.
+- **A vector store with retrieval-augmented generation (the bonus of section 2.1):** pgvector in the same PostgreSQL, with exact search per document.
 
-Not built: streaming responses and background queues. Both are explained in "Known limitations".
+Not built: streaming responses and background queues. Both are discussed in "Scope choices" and in "What I would add in production".
 
 ## Cost and rate limits
 
@@ -305,30 +321,37 @@ Not built: streaming responses and background queues. Both are explained in "Kno
 | Output is capped | `MAX_OUTPUT_TOKENS` |
 | Input is capped: question length, document size, upload size | See "Limits" |
 | Per-user rate limits: 10 questions and 5 uploads per minute | `@nestjs/throttler` |
+| Agentic mode: at most `AGENT_MAX_SEARCHES` searches and a 120-second deadline on its model calls | `AGENT_*` settings |
 | The smallest model that does the job | `gemini-3.1-flash-lite` |
 | Token counts are stored with every answer | `questions` table |
 
 ### Cost estimate
 
 Prices are the list prices of `gemini-3.1-flash-lite`: 0.25 USD per million
-input tokens and 1.50 USD per million output tokens. A request is one question:
-one query embedding and one chat call. The query embedding costs at most about
-0.00005 USD (a 1,000-character question) and is left out.
+input tokens and 1.50 USD per million output tokens. In the classic mode a request
+is one question: one query embedding and one chat call. In the agentic mode each
+search adds an embedding and each turn a chat call. A query embedding costs at most
+about 0.00005 USD (a 1,000-character question) and is left out.
 
 | Scenario | Input tokens | Output tokens | 1k requests | 10k requests | 100k requests |
 |---|---|---|---|---|---|
 | Measured on 5 questions about a 4 KB document | 1,262 | 58 | 0.40 USD | 4.03 USD | 40.25 USD |
-| Agentic mode, measured on 7 questions (those 5, a two-part one and an unanswerable one) | 2,029 | 90 | 0.64 USD | 6.42 USD | 64.23 USD |
+| Classic mode, measured on 7 questions (those 5, a two-part one and an unanswerable one) | 1,254 | 55 | 0.40 USD | 3.96 USD | 39.60 USD |
+| Agentic mode, measured on the same 7 questions | 2,029 | 90 | 0.64 USD | 6.42 USD | 64.23 USD |
 | 5 full passages, short answer | 1,450 | 100 | 0.51 USD | 5.13 USD | 51.25 USD |
 | Worst case: 5 full passages, a 1,000-character question, 800 output tokens | 1,750 | 800 | 1.64 USD | 16.38 USD | 163.75 USD |
+| Agentic worst case (estimate): 4 calls, each resending the growing conversation and answering up to 800 tokens | 8,000 | 3,200 | 6.80 USD | 68.00 USD | 680.00 USD |
 
 The measured document had 6 chunks and 5 were retrieved, so almost all of it was
 sent. A longer document still sends only 5 passages, so the cost of a question
-does not grow with the document. The worst case is the ceiling set by
-`MAX_QUESTION_CHARS`, `RETRIEVAL_TOP_K` and `MAX_OUTPUT_TOKENS`.
+does not grow with the document. The classic worst case is the ceiling set by
+`MAX_QUESTION_CHARS`, `RETRIEVAL_TOP_K` and `MAX_OUTPUT_TOKENS`. The agentic one also
+depends on `AGENT_MAX_SEARCHES` and `AGENT_TOP_K`, and I did not measure it: it is an
+estimate, about four times the classic worst case.
 
-The agentic mode cost about 1.6 times the classic mode in my measurements (2.3 model
-calls per question on average, 4 for the two-part question), and its latency varies
+On the same 7 questions, which include the unanswerable one, the agentic mode cost about
+1.6 times the classic mode (2.3 model calls per question on average, 4 for the two-part
+question), and its latency varies
 with the provider's load: on the day I measured, 14.9 seconds on average for the classic
 mode and 23.9 for the agentic one.
 
@@ -365,7 +388,7 @@ regardless of traffic.
 |---|---|
 | The original uploaded file | Only the extracted text is needed |
 | Passwords and API keys | Hashes only; keys live in the environment or in Secrets Manager |
-| Prompts as sent | They can be rebuilt from the prompt version, the question and the retrieved chunk indexes |
+| Prompts as sent | In the classic mode they can be rebuilt from the prompt version, the question and the retrieved chunk indexes. In the agentic mode the searches the model made are stored, but not the conversation, so an answer can be explained but not replayed exactly |
 
 **Retention.** Data is kept until the user deletes the document, which removes
 its chunks and questions in the same transaction. There is no automatic expiry.
@@ -398,8 +421,9 @@ because the message of a failed database query contains its parameters.
 
 **Auditability.** Every answer has a row in `questions` with the prompt version,
 provider, model, token counts, latency and the chunks that were retrieved with
-their distances. That is enough to explain why an answer was given and to
-reproduce it.
+their distances, and for an agentic answer the mode, the searches and the number of
+model calls. That is enough to explain why an answer was given, and to reproduce a
+classic one; an agentic one depends on what the model chose to search.
 
 ### Observability
 
@@ -531,9 +555,10 @@ inlines at build time: the production image is built with
 - Requests are long. A question took about 10 seconds on average in my
   measurements. The API answers only when the model has, so the connection stays
   silent until then, and the load balancer closes a connection that stays silent
-  longer than its idle timeout (60 seconds by default). A question makes two
-  provider calls in a row, each up to about 96 seconds with retries, so the
-  timeout is 240 seconds.
+  longer than its idle timeout (60 seconds by default). A classic question makes two
+  provider calls in a row, each up to about 96 seconds with retries, so the timeout is
+  240 seconds. An agentic question is cut at 120 seconds of model calls, plus its
+  embedding calls, so it stays inside that timeout in practice.
 - Cost follows tokens, not requests, so budgets must be counted in tokens.
 
 ## Trade-offs and known limitations
@@ -558,7 +583,7 @@ Known limitations:
   APIs, because I have no keys. How each handles structured output, and whether a
   newer model accepts the parameters I send, is untested. Reasoning models may need
   `LLM_TEMPERATURE` left empty.
-- **Agentic mode.** It makes two to four model calls per question, so it costs more and
+- **Agentic mode.** It makes one to four model calls per question, so it costs more and
   its latency grows and varies with the provider's load. A question with more parts than
   `AGENT_MAX_SEARCHES` can be answered only in part. The user sees the pending card until
   the answer arrives, because the steps are not streamed. A model that answers in plain

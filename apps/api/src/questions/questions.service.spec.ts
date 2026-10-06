@@ -284,6 +284,12 @@ describe('QuestionsService.ask: answer modes', () => {
     );
   });
 
+  it('treats a null mode like a missing one instead of storing it', async () => {
+    const { service, repo } = setup();
+    await expect(service.ask('user-1', 'doc-1', question, null)).resolves.toMatchObject({ mode: 'classic' });
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ mode: 'classic' }));
+  });
+
   it('uses the default mode of the settings when the request does not choose one', async () => {
     settings.DEFAULT_ANSWER_MODE = 'agentic';
     try {
