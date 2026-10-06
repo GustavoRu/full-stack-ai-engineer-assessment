@@ -35,6 +35,8 @@ Success criteria:
 - Next.js frontend with login, document list and upload, and a Q&A page.
 - Docker for database, API and frontend.
 - Terraform for AWS, written and validated, never applied.
+- An optional Grafana dashboard over the audit table, behind a Compose profile.
+- A demo account created at startup from environment variables, for local use.
 - README with architecture, AI design, trade-offs, run instructions, and a cost
   table for 1k, 10k and 100k requests.
 
@@ -354,6 +356,9 @@ are `question_answered`, `question_failed`, `document_ingested` and
 `document_ingest_failed`. Document text, questions, answers and keys are never
 logged.
 
+Logs are JSON, one object per line, so CloudWatch metric filters and Grafana can
+select by field.
+
 Unexpected errors are logged without their message, because the message of a
 failed query carries its bound parameters. The log line keeps the error type,
 the database error code and constraint, and the first stack frames.
@@ -475,12 +480,15 @@ committed; `.env` is ignored by git.
 | `PORT` | `3001` | |
 | `WEB_ORIGIN` | `http://localhost:3000` | |
 | `API_DOCS_ENABLED` | `true` | |
+| `TRUST_PROXY_HOPS` | `0` | |
 | `DB_HOST` | `localhost` (`db` inside Compose) | |
 | `DB_PORT` | `5432` | |
 | `DB_NAME`, `DB_USER` | `docqa` | |
 | `DB_PASSWORD` | `docqa` (local only) | Yes |
+| `DB_SSL` | `false` | |
 | `JWT_SECRET` | none | Yes |
 | `JWT_EXPIRES_IN_SECONDS` | `3600` | |
+| `DEMO_USER_EMAIL`, `DEMO_USER_PASSWORD` | `test@test.com` / `test-password` in `.env.example`, empty otherwise; set together or not at all | Public, local only |
 | `LLM_PROVIDER` | `gemini` | |
 | `GEMINI_API_KEY` | none, required when the provider is `gemini` | Yes |
 | `GEMINI_CHAT_MODEL` | `gemini-3.1-flash-lite` | |
@@ -514,9 +522,10 @@ Target: ECS on Fargate.
 |---|---|
 | `network.tf` | VPC, two public and two private subnets, internet gateway, one NAT gateway, route tables, security groups |
 | `alb.tf` | Application load balancer, HTTP listener, target groups, rule `/api/*` to the API and default to the frontend |
-| `ecs.tf` | ECR repositories, cluster, task definitions and services for API and frontend, IAM roles, log group, autoscaling |
+| `ecs.tf` | ECR repositories, cluster, task definitions and services for API and frontend, IAM roles, autoscaling |
 | `rds.tf` | PostgreSQL 17 in private subnets, encrypted, master password managed by RDS in Secrets Manager |
 | `secrets.tf` | Secrets Manager secrets for `GEMINI_API_KEY` and `JWT_SECRET`, without values |
+| `observability.tf` | Log groups with retention, three metric filters on the JSON logs, one failure alarm |
 | `variables.tf`, `outputs.tf`, `versions.tf` | Inputs, outputs, provider versions |
 
 - **Secrets**: Terraform creates the secrets but not their values, which are set
