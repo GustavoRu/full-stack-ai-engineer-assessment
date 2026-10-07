@@ -51,6 +51,12 @@ cp .env.example .env
 docker compose up --build
 ```
 
+**Getting a free Gemini key:** open https://aistudio.google.com/apikey, sign in with a
+Google account, choose **Create API key**, and paste it after `GEMINI_API_KEY=` in
+`.env`. The same key serves the chat and the embeddings. The free plan has quotas that
+only AI Studio shows, and the screens may change over time. Without a key, use
+`LLM_PROVIDER=mock` to try the whole app offline.
+
 Open http://localhost:3000 and sign in with the demo account, or create your own:
 
 | Email | Password |
