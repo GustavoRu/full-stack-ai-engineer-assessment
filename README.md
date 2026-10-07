@@ -1,48 +1,25 @@
 # Document Q&A Assistant
 
-Upload a document, ask questions about it, and get answers grounded in that
-document with the passages they came from.
+Upload a document (PDF, text or Markdown), ask questions about it, and get answers
+grounded in that document: each answer shows the passages it came from and a status
+(`answered`, `unverified` or `not_found`) that says how far to trust it.
+
+Built with Next.js, NestJS, PostgreSQL with pgvector and Gemini. OpenAI, Anthropic and an
+offline mock can be switched on from `.env`. Each question is answered in one of two
+modes: classic (one model call) or agentic (the model searches the document itself,
+with tool calling).
 
 This is my submission for the Full Stack AI Engineer assessment. The brief is in
 [docs/CHALLENGE.md](docs/CHALLENGE.md) and the full design, with every decision
 and its trade-off, is in
 [docs/superpowers/specs](docs/superpowers/specs/2026-10-03-document-qa-assistant-design.md).
-
-## What the brief asks, and where it is
-
-"Built" means it runs and has tests. "Explained" means the brief asked for an explanation
-and it is written in this README, without building it.
-
-| The brief asks for | Status | Built with | Where to read |
-|---|---|---|---|
-| One use case, simplified and explained | Built | Questions and answers over documents | [Scope choices](#scope-choices) |
-| Node backend, REST API, one AI endpoint, persistence, authentication | Built | NestJS 12, PostgreSQL with pgvector, JWT | [Architecture](#architecture) |
-| Prompt construction, model invocation and post-processing kept apart | Built | `src/prompts/`, `src/llm/`, `answer-parser.ts` | [Three separate steps](#three-separate-steps) |
-| Switch LLM providers | Built | One LangChain adapter for Gemini, OpenAI and Anthropic, plus an offline mock. Only Gemini is verified against a real API | [Switching providers](#switching-providers) |
-| Prompt versioning | Built | One file per version, stored with every answer | [Prompt versioning](#prompt-versioning) |
-| Prompt injection, costs and rate limits | Explained, and the limits are built | Four layers; per-user limits; costs measured against the real provider | [Prompt injection](#prompt-injection), [Cost and rate limits](#cost-and-rate-limits) |
-| Frontend with 2+ pages, a form, loading, error and empty states | Built | Next.js 16 | [Frontend](#frontend) |
-| Model status, re-asking, uncertainty | Built | "Thinking", "Edit and ask again", the `answered`, `unverified` and `not_found` badges. No partial results | [Frontend](#frontend) |
-| Data stored, retention, PII, logging, auditability | Explained, with logs and audit built | JSON logs without content, an audit row per answer | [Data](#data-what-is-stored-and-for-how-long), [PII, logging and auditability](#pii-logging-and-auditability) |
-| Bonus: embeddings and RAG with a vector store | Built | pgvector, exact search per document | [Retrieval](#retrieval) |
-| Output quality, regressions, wrong answers | Explained | A golden set and four measures | [Evaluation and reliability](#evaluation-and-reliability) |
-| Terraform, secrets without plaintext, config apart from code | Built, validated, never applied | ECS Fargate, RDS, Secrets Manager | [Infrastructure](#infrastructure) |
-| Where keys live, rotation, scaling under bursts | Explained | Secrets Manager; autoscaling on requests per task | [Infrastructure](#infrastructure) |
-| Docker for backend and frontend, deployment, scaling limits of AI | Built and explained | Docker Compose locally; ECS Fargate | [Run locally](#run-locally), [Infrastructure](#infrastructure) |
-| Bonus: tool calling | Built | The agentic answer mode | [Answer modes](#answer-modes) |
-| Bonus: cost for 1k, 10k and 100k requests | Built | Measured tokens against the real provider | [Cost estimate](#cost-estimate) |
-| Bonus: multi-tenant isolation | Built for data | Per-user isolation in SQL; prompts are shared | [Bonus sections covered](#bonus-sections-covered) |
-| Bonus: streaming, queues and workers | Not built | | [Known limitations](#trade-offs-and-known-limitations) |
-
-Beyond the brief: a demo account, per-request logs, and optional Grafana dashboards over
-the audit table and the live backend logs (see [Observability](#observability)).
-
-**Not verified:** OpenAI and Anthropic against their real APIs (no keys), the Terraform
-against a real AWS account, and Gemini's quotas, which only Google AI Studio shows.
+The table of what the brief asks and where each part is comes right after the run
+instructions.
 
 ## Run locally
 
-Requirements: Docker.
+Requirements: Docker, with the `docker compose` command. Nothing else needs to be installed.
+A Gemini key is free; without one, the offline mock runs the whole app.
 
 ```bash
 cp .env.example .env
@@ -123,6 +100,38 @@ pnpm install
 pnpm dev         # http://localhost:3000
 pnpm test
 ```
+
+## What the brief asks, and where it is
+
+"Built" means it runs and has tests. "Explained" means the brief asked for an explanation
+and it is written in this README, without building it.
+
+| The brief asks for | Status | Built with | Where to read |
+|---|---|---|---|
+| One use case, simplified and explained | Built | Questions and answers over documents | [Scope choices](#scope-choices) |
+| Node backend, REST API, one AI endpoint, persistence, authentication | Built | NestJS 12, PostgreSQL with pgvector, JWT | [Architecture](#architecture) |
+| Prompt construction, model invocation and post-processing kept apart | Built | `src/prompts/`, `src/llm/`, `answer-parser.ts` | [Three separate steps](#three-separate-steps) |
+| Switch LLM providers | Built | One LangChain adapter for Gemini, OpenAI and Anthropic, plus an offline mock. Only Gemini is verified against a real API | [Switching providers](#switching-providers) |
+| Prompt versioning | Built | One file per version, stored with every answer | [Prompt versioning](#prompt-versioning) |
+| Prompt injection, costs and rate limits | Explained, and the limits are built | Four layers; per-user limits; costs measured against the real provider | [Prompt injection](#prompt-injection), [Cost and rate limits](#cost-and-rate-limits) |
+| Frontend with 2+ pages, a form, loading, error and empty states | Built | Next.js 16 | [Frontend](#frontend) |
+| Model status, re-asking, uncertainty | Built | "Thinking", "Edit and ask again", the `answered`, `unverified` and `not_found` badges. No partial results | [Frontend](#frontend) |
+| Data stored, retention, PII, logging, auditability | Explained, with logs and audit built | JSON logs without content, an audit row per answer | [Data](#data-what-is-stored-and-for-how-long), [PII, logging and auditability](#pii-logging-and-auditability) |
+| Bonus: embeddings and RAG with a vector store | Built | pgvector, exact search per document | [Retrieval](#retrieval) |
+| Output quality, regressions, wrong answers | Explained | A golden set and four measures | [Evaluation and reliability](#evaluation-and-reliability) |
+| Terraform, secrets without plaintext, config apart from code | Built, validated, never applied | ECS Fargate, RDS, Secrets Manager | [Infrastructure](#infrastructure) |
+| Where keys live, rotation, scaling under bursts | Explained | Secrets Manager; autoscaling on requests per task | [Infrastructure](#infrastructure) |
+| Docker for backend and frontend, deployment, scaling limits of AI | Built and explained | Docker Compose locally; ECS Fargate | [Run locally](#run-locally), [Infrastructure](#infrastructure) |
+| Bonus: tool calling | Built | The agentic answer mode | [Answer modes](#answer-modes) |
+| Bonus: cost for 1k, 10k and 100k requests | Built | Measured tokens against the real provider | [Cost estimate](#cost-estimate) |
+| Bonus: multi-tenant isolation | Built for data | Per-user isolation in SQL; prompts are shared | [Bonus sections covered](#bonus-sections-covered) |
+| Bonus: streaming, queues and workers | Not built | | [Known limitations](#trade-offs-and-known-limitations) |
+
+Beyond the brief: a demo account, per-request logs, and optional Grafana dashboards over
+the audit table and the live backend logs (see [Observability](#observability)).
+
+**Not verified:** OpenAI and Anthropic against their real APIs (no keys), the Terraform
+against a real AWS account, and Gemini's quotas, which only Google AI Studio shows.
 
 ## What the answer looks like
 
