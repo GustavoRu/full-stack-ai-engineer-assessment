@@ -72,6 +72,18 @@ Interactive API docs (Swagger UI) are at http://localhost:3001/api/docs. Call
 `POST /auth/register`, paste the returned `accessToken` into **Authorize**, and
 the other routes are ready to try.
 
+| What | Address |
+|---|---|
+| Web app | http://localhost:3000 |
+| API | http://localhost:3001/api |
+| API docs (Swagger) | http://localhost:3001/api/docs |
+| Grafana, only with the observability profile | http://localhost:3002 (`admin` / `admin`) |
+| PostgreSQL | `localhost:5432` |
+
+Everything listens on `127.0.0.1` only. To also start Grafana, Loki and Alloy, run
+`docker compose --profile observability up --build` (see [Observability](#observability)).
+To stop and delete the database, run `docker compose down -v`.
+
 ### Try it
 
 ```bash
@@ -146,6 +158,43 @@ Docker Compose.
 | `llm` | Ports for the chat and embedding models, one LangChain chat adapter for Gemini, OpenAI and Anthropic, and the offline mock |
 | `prompts` | Versioned prompt templates |
 | `database` | Drizzle schema and migrations |
+
+```mermaid
+flowchart LR
+  browser([Browser]) -->|pages| web["Web<br/>Next.js, port 3000"]
+  browser -->|"REST with a JWT"| api
+  subgraph api["API: NestJS, port 3001"]
+    auth[auth]
+    documents[documents]
+    questions[questions]
+    prompts[prompts]
+    llm["llm<br/>ChatModel and EmbeddingModel ports"]
+    questions --> prompts
+    questions --> llm
+    documents --> llm
+  end
+  auth --> db[("PostgreSQL + pgvector")]
+  documents --> db
+  questions --> db
+  llm --> gemini["Gemini<br/>the default, verified"]
+  llm -.-> others["OpenAI, Anthropic<br/>connected, not verified"]
+  llm -.-> mock["Offline mock"]
+```
+
+The browser talks to the API directly, and the web app only serves pages. The
+provider is chosen by `LLM_PROVIDER` in `.env`; the rest of the code only sees the
+two ports.
+
+### What happens when a document is uploaded
+
+```mermaid
+flowchart LR
+  upload["Upload<br/>PDF, .txt, .md or pasted text"] --> extract[Extract the text]
+  extract --> split["Split into chunks<br/>about 1,000 characters, 150 overlap"]
+  split --> embed["Embed every chunk<br/>768 dimensions"]
+  embed --> store[("Store the document, its chunks<br/>and their vectors")]
+  embed -. "if embedding fails" .-> nothing[Nothing is stored]
+```
 
 ## AI design
 
@@ -255,6 +304,51 @@ UI, the optional `mode` field in the API). The classic mode is the default.
 | Prompt | `qa-v1` | `agent-v1` |
 | Good for | Most questions: cheaper and predictable | Questions with several parts, or a first search that misses |
 
+Classic mode: the code searches once and the model is called once.
+
+```mermaid
+sequenceDiagram
+  actor U as User
+  participant API as API (questions)
+  participant DB as PostgreSQL
+  participant LLM as Chat model
+  U->>API: POST /documents/:id/questions
+  API->>API: Embed the question
+  API->>DB: 5 nearest chunks of this document
+  DB-->>API: passages
+  API->>LLM: prompt qa-v1 with the passages
+  LLM-->>API: JSON answer with citations
+  API->>API: Parse, check the citations, set the status
+  API->>DB: Save the audit row
+  API-->>U: answer, sources and status
+```
+
+Agentic mode: the model asks for searches and the code runs them.
+
+```mermaid
+sequenceDiagram
+  actor U as User
+  participant API as API (agent loop)
+  participant LLM as Chat model
+  participant DB as PostgreSQL
+  U->>API: question with mode agentic
+  loop until the model submits, at most 4 model calls
+    API->>LLM: question, tools and the results so far
+    alt the model calls search_document
+      LLM-->>API: a search query
+      API->>DB: embed the query, 3 nearest chunks of this document
+      DB-->>API: passages, sent back as the tool result
+    else the model calls submit_answer
+      LLM-->>API: answer and citations
+    end
+  end
+  Note over API,LLM: The last call offers only submit_answer and requires it
+  Note over API: One 120 second deadline for the whole question
+  API->>API: Same parser and status rules as the classic mode
+  API->>DB: Save the audit row with the searches made
+  API-->>U: answer, sources and the searches made
+```
+
 In the agentic mode the model has two tools: `search_document`, which returns the
 best passages of the document being asked about, and `submit_answer`, whose arguments
 are the final answer. The loop is written by hand in `src/questions/agent-loop.ts` and
@@ -303,7 +397,7 @@ list with upload, and the question page of one document.
 
 | Concern | How it is handled |
 |---|---|
-| Model status | A pending card shows the question and "Thinking" (or "Searching the document" in the agentic mode) until the answer arrives |
+| Model status | A pending card shows the question and "Thinking" (or "Searching the document" in the agentic mode) until the answer arrives. Turning on the agentic checkbox warns that it can take 15–30 seconds |
 | Uncertainty | Each answer carries a status badge; `unverified` adds a warning and `not_found` suggests rephrasing |
 | Sources | Each answer can expand the passages it cited |
 | Refine or re-ask | "Edit and ask again" copies a past question into the form |
@@ -470,6 +564,14 @@ There are three kinds of data and each has one home:
 Grafana is the visualization layer and stores no data itself. Locally, an optional
 profile starts it with two dashboards already loaded:
 
+```mermaid
+flowchart LR
+  api["API and web<br/>JSON logs"] --> alloy[Alloy]
+  alloy --> loki[("Loki<br/>7 days")]
+  loki --> grafana["Grafana<br/>port 3002"]
+  audit[("questions table<br/>audit rows")] -->|"read-only role,<br/>metric columns only"| grafana
+```
+
 ```bash
 docker compose --profile observability up -d
 # http://localhost:3002
@@ -537,10 +639,14 @@ change.
 The Terraform in [infra/](infra/) describes the deployment on AWS. It is
 validated with `terraform validate` and has never been applied.
 
-```
-Internet -> ALB --/api/*--> API tasks (Fargate, private subnets) --> RDS PostgreSQL
-                \--else---> Web tasks (Fargate, private subnets)
-API tasks --> NAT gateway --> Gemini API
+```mermaid
+flowchart LR
+  internet([Internet]) --> alb[Application Load Balancer]
+  alb -->|"/api/*"| api["API tasks<br/>Fargate, private subnets"]
+  alb -->|"everything else"| web["Web tasks<br/>Fargate, private subnets"]
+  api --> rds[("RDS PostgreSQL")]
+  api --> nat[NAT gateway] --> gemini[Gemini API]
+  secrets[Secrets Manager] -.->|"injected when a task starts"| api
 ```
 
 **Why ECS on Fargate.** The brief asks to show deployment on ECS, EKS or

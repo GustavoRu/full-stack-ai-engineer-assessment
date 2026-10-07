@@ -150,6 +150,17 @@ describe('QuestionPanel', () => {
     expect(toggle.checked).toBe(true);
   });
 
+  it('warns about the wait only while the search mode is on', () => {
+    render(<QuestionPanel documentId="d-1" initialQuestions={[]} />);
+    expect(screen.queryByText(/Expect around 15–30 seconds/)).toBeNull();
+
+    fireEvent.click(screen.getByLabelText(/Let the model search the document/));
+    expect(screen.getByText(/Expect around 15–30 seconds/)).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText(/Let the model search the document/));
+    expect(screen.queryByText(/Expect around 15–30 seconds/)).toBeNull();
+  });
+
   it('does not let the mode change while a question is being answered', () => {
     apiFetchMock.mockReturnValue(new Promise(() => {}));
     render(<QuestionPanel documentId="d-1" initialQuestions={[]} />);
